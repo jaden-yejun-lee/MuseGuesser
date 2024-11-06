@@ -6,8 +6,6 @@ const { getAccessToken } = require('../utility/tokenManager')
 
 // Client ID and Secret
 require("dotenv").config()
-const CLIENT_ID = process.env.REACT_APP_SPOTIFY_CLIENT_ID
-const CLIENT_SECRET = process.env.REACT_APP_SPOTIFY_CLIENT_SECRET
 
 // Get spotify access token with client credentials flow
 //  see https://developer.spotify.com/documentation/web-api/tutorials/client-credentials-flow

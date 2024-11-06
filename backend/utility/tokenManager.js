@@ -87,14 +87,16 @@ const scheduleTokenRefresh = (expiresIn) => {
 // Get access token
 //  automaticlaly get a new one if token already timeout
 const getAccessToken = async() => {
-    console.log(accessToken)
-    console.log(Date.now(), tokenExpires)
+    console.log("Getting request for Spotify access token")
 
     // Get new token if don't have one / token expired
     if (!accessToken || Date.now() >= tokenExpires) {
+        console.log("Retrieving new access token")
+
         let count = 0
         while (true) {
             try {
+                console.log(`Retry: ${count} times...`)
                 await fetchAndStoreToken()
                 break
             } catch(error) {
@@ -103,6 +105,7 @@ const getAccessToken = async() => {
             }
         }
     }
+    console.log(`Returning access token ${accessToken}`)
     return accessToken
 }
 

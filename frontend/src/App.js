@@ -6,7 +6,7 @@ function App() {
   const [token, setToken] = useState('')
 
   useEffect(() => {
-    fetch(`${process.env.REACT_APP_API_URL}/api/token`)
+    fetch(`${process.env.REACT_APP_API_URL}/api/spotify/token`)
       .then(response => response.json())
       .then(data => setToken(data.access_token))
       .catch(error => console.error("Error fetching token: ", error))
