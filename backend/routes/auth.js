@@ -5,7 +5,7 @@ const Login = require('../models/Login')
 const HttpStatus = require('http-status-codes')
 
 const router = express.Router()
-const JWT_SECRET = process.env.JWT_SECRET
+const JWT_SECRET = process.env.REACT_APP_JWT_SECRET
 
 // login route
 router.post('/login', async (request, response) => {
