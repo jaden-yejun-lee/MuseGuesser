@@ -40,7 +40,7 @@ const fetchToken = async() => {
         const response = await axios(authOptions)
 
         console.log("Fetched token: ", response.data)
-        return response.data.access_token, response.data.expires_in
+        return [response.data.access_token, response.data.expires_in]
     } catch(error) {
         console.log("Failed to retrieve token")
         if (error.response) {
@@ -61,7 +61,7 @@ const fetchToken = async() => {
 const fetchAndStoreToken = async() => {
     try {
         let expiresIn
-        accessToken, expiresIn = await fetchToken()
+        [accessToken, expiresIn] = await fetchToken()
         tokenExpires = Date.now() + expiresIn * 1000    // converts seconds to milliseconds UTC
         scheduleTokenRefresh(expiresIn)                 // schedule a refresh
         return accessToken
@@ -87,6 +87,9 @@ const scheduleTokenRefresh = (expiresIn) => {
 // Get access token
 //  automaticlaly get a new one if token already timeout
 const getAccessToken = async() => {
+    console.log(accessToken)
+    console.log(Date.now(), tokenExpires)
+
     // Get new token if don't have one / token expired
     if (!accessToken || Date.now() >= tokenExpires) {
         let count = 0
