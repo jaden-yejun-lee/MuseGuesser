@@ -11,6 +11,7 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
+    "axios": "^1.7.7",
     "bcrypt": "^5.1.1",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
@@ -20,6 +21,7 @@
     "mongoose": "^8.7.3",
     "node-cron": "^3.0.3",
     "path": "^0.12.7",
+    "querystring": "^0.2.1",
     "socket.io": "^4.8.1",
     "validator": "^13.12.0"
   }
