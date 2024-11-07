@@ -5,7 +5,6 @@ const validator = require('validator');
 const http = require('http');
 const socketIo = require('socket.io');
 const cron = require('node-cron');
-const spotifyAuth = require('./routes/spotifyAuth.js').router
 const spotifyRouter = require('./routes/spotifyRouter.js')
 
 const app = express();
@@ -19,7 +18,7 @@ const db = require('./db.js');
 
 // Routes
 // --- Spotify access token
-app.use('/api', spotifyAuth)
+app.use('/api/spotify', spotifyRouter)
 // spotify song routes
 app.use('/songModel', spotifyRouter)
 

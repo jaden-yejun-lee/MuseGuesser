@@ -47,7 +47,7 @@ function App() {
             value={selectedGenre}
             onChange={(e) => setSelectedGenre(e.target.value)}
           >
-            <option value="" 
+            <option value=""
               disabled>Choose Genre
             </option>
             <option value="pop">Pop</option>
