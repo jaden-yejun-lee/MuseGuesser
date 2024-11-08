@@ -1,27 +1,32 @@
+import './game'
+
 ROOM_STATES = {
     PENDING: "pending",
     STARTED: "started",
     CLOSED: "closed"
 }
 
+const ROOM_CODE_DIGITS = 4  // room code is 4-digits long
+
 // Room where games are held
 //  TODO: for now we store rooms in memory, and the total numbers
 //      of active rooms in any given moment is assumed to be < 10000
-const Room = class {
-    static roomID = 0
-    static idSet = new Set([])
+class Room extends Game {
+    static codePair = {}
 
     constructor() {
-        Room.roomID = (Room.roomID + 1) % 10000           // increment room id
-        while (Room.idSet.has(++Room.roomID)) {}     // omit repetitive ids 
-        Room.idSet.add(Room.roomID)
-        
-        this.id         = Room.roomID           // id
-        this.state      = ROOM_STATES.PENDING   // current state
-        this.players    = []                    // list of players, referred to by id's
+        super()
+
+        this.code = this.generateRoomCode()
+        codePair[this.code] = this              // generate room code & add to the dictionary
     }
 
-    // generate room code, which is a 4-digit number
+    // generate room code, which is a number ROOM_CODE_DIGITS long
+    generateRoomCode() {
+        var code = this.id % (10 ** ROOM_CODE_DIGITS)
+        while (code in codePair) code = (code + 1) % (10 ** ROOM_CODE_DIGITS)
+        return String(code).padStart(ROOM_CODE_DIGITS, '0')
+    }
     getRoomCode() {
         return String(this.id).padStart(4, '0')
     }
@@ -39,7 +44,7 @@ const Room = class {
     // add a player to the room
     addPlayer(player) {
         this.players.push(player)
-    } 
+    }
 
     // close a room
     static closeRoom(room) {
