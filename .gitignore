@@ -1,4 +1,6 @@
 .DS_Store
 node_modules
 /backend/.env
+/backend/log
 /frontend/.env
+/frontend/log
