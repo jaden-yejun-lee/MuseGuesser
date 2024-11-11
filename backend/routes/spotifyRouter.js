@@ -25,18 +25,10 @@ router.get('/token', async (req, res) => {
 // Get track from track ID
 router.get("/track/:id", async (req, res) => {
   const trackId = req.params.id;
+  const spotify = SpotifyProxy.getInstance();
 
   try {
-    const accessToken = await getAccessToken();
-    const response = await axios.get(
-      `https://api.spotify.com/v1/tracks/${trackId}`,
-      {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
-      }
-    );
-    res.json(response.data);
+    res.json(spotify.getTrack(trackId))
   } catch (error) {
     res.status(500).json({ error: "Failed to fetch track data" });
   }
