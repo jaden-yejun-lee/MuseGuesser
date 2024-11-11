@@ -2,6 +2,7 @@ const express = require("express");
 const router = express.Router();
 const axios = require("axios");
 const { getAccessToken } = require("../utility/tokenManager");
+const { SpotifyProxy } = require('../controller/spotifyProxy')
 
 // Get spotify access token with client credentials flow
 //  see https://developer.spotify.com/documentation/web-api/tutorials/client-credentials-flow
@@ -44,19 +45,12 @@ router.get("/track/:id", async (req, res) => {
 // Get recommendation from genre
 router.get("/recommendations", async (req, res) => {
   const { genres, limit = 10 } = req.query; // Default to "pop" if genres is not provided
-  const accessToken = await getAccessToken();
+  const spotify = SpotifyProxy.getInstance();
 
   try {
-    const response = await axios.get(
-      `https://api.spotify.com/v1/recommendations?seed_genres=${genres}&limit=${limit}`,
-      {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
-      }
-    );
-    res.json(response.data);
-
+    console.log("Requesting a random track of genre", genres)
+    const track = await spotify.getRandomTrackByGenre(genres)  // TODO: for now we assume there is one genre
+    res.json(track)
   } catch (error) {
     console.error("Error fetching recommendations:", error);
     res.status(500).json({ error: "Failed to fetch recommendations" });

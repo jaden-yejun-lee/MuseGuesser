@@ -12,27 +12,13 @@ function App() {
       const response = await fetch(
         `http://localhost:5000/songModel/recommendations?genres=${selectedGenre}&limit=10`
       );
-      const data = await response.json();
+      const track = await response.json();
 
-      // only get tracks with previewurls
-      const tracksWithPreview = data.tracks.filter(
-        (track) => track.preview_url
-      );
+      console.log(track)
 
-      // set random previewurl
-      if (tracksWithPreview.length > 0) {
-        const randomTrack =
-          tracksWithPreview[
-            Math.floor(Math.random() * tracksWithPreview.length)
-          ];
-        const previewUrl = randomTrack.preview_url;
-
-        // set audio and play
-        const audio = new Audio(previewUrl);
-        audio.play();
-      } else {
-        alert("No previews available for this genre.");
-      }
+      // set audio and play
+      const audio = new Audio(track.preview_url);
+      audio.play();
     } catch (error) {
       console.error("Error fetching recommendations:", error);
     }
