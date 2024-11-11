@@ -84,26 +84,25 @@ class SpotifyProxy {
     // Recommends tracks from genre
     //  TODO: for now we assume there is only one genre
     async recommendTracks(genre, limit = 10) {
-        if (this.cache.size < limit) {
-            try {
-                const accessToken = await getAccessToken();
-                const response = await axios.get(
-                `https://api.spotify.com/v1/recommendations?seed_genres=${genre}&limit=${limit}`,
-                {
-                    headers: {
-                        Authorization: `Bearer ${accessToken}`,
-                    },
-                }
-                ).catch((error) => console.log(error));
-
-                response.data.tracks.forEach(track => {
-                    track.genre = genre // append genre to the song
-                    this.addToCache(track.id, track)
-                });
-            } catch (error) {
-                // TODO: error handling
-                throw error
+        try {
+            const accessToken = await getAccessToken();
+            const response = await axios.get(
+            `https://api.spotify.com/v1/recommendations?seed_genres=${genre}&limit=${limit}`,
+            {
+                headers: {
+                    Authorization: `Bearer ${accessToken}`,
+                },
             }
+            ).catch((error) => console.log(error));
+
+            console.log("Getting responses")
+            response.data.tracks.forEach(track => {
+                track.genre = genre // append genre to the song
+                this.addToCache(track.id, track)
+            });
+        } catch (error) {
+            // TODO: error handling
+            throw error
         }
 
         // TODO: Form recommendation from cache
@@ -112,7 +111,7 @@ class SpotifyProxy {
 
     // (base) Get a random track with filter
     //  returns null if no match
-    getRandomTrack(filter) {
+    getRandomTrackFilter(filter) {
         const filteredValues = [...this.cache.values()]
             .map(entry => entry.response)
             .filter((value) => filter(value))
@@ -122,13 +121,19 @@ class SpotifyProxy {
 
     // Get a random track
     getRandomTrack() {
-        return this.getRandomTrack(ALL_FILTER)
+        return this.getRandomTrackFilter(ALL_FILTER)
     }
 
     // Get a random track by genre
-    getRandomTrackByGenre(genre) {
+    async getRandomTrackByGenre(genre) {
+        console.log("Fetching new recommendations of genre", genre)
+        await this.recommendTracks(genre)
+
+        console.log("Filtering results")
         const filter = PREVIEW_GENRE_FILTER_FAC(genre)
-        return this.getRandomTrack(filter)
+        const result = this.getRandomTrackFilter(filter)
+
+        return result
     }
 }
 
