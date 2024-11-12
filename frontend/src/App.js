@@ -16,7 +16,7 @@ function App() {
       const response = await fetch(
         `http://localhost:5000/songModel/recommendations?genres=${selectedGenre}&limit=30`
       );
-      const data = await response.json();
+      const track = await response.json();
 
       // only get tracks with previewurls
       const tracksWithPreview = data.tracks.filter((track) => track.preview_url);
