@@ -36,7 +36,7 @@ router.get("/track/:id", async (req, res) => {
 
 // Get recommendation from genre
 router.get("/recommendations", async (req, res) => {
-  const { genres, limit = 10 } = req.query; // Default to "pop" if genres is not provided
+  const { genres, limit = 30 } = req.query; // Default to "pop" if genres is not provided
   const spotify = SpotifyProxy.getInstance();
 
   try {
