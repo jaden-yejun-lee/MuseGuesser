@@ -1,3 +1,5 @@
+// This file is like a bus for the models to server.js
+
 const mongoose = require('mongoose');
 require('dotenv').config();
 
@@ -9,3 +11,10 @@ mongoose.connect(process.env.MONGODB_URI)
 .catch((err) => {
     console.log('Failed to connect to MongoDB', err);
 });
+
+// import models from models/songModel.js and models/userModel.js
+
+const Song = require('./models/songModel.js');
+const User = require('./models/userModel.js');
+
+module.exports = {User, Song};

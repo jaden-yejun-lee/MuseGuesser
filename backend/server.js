@@ -5,7 +5,8 @@ const validator = require('validator');
 const http = require('http');
 const socketIo = require('socket.io');
 const cron = require('node-cron');
-const spotifyRouter = require('./routes/spotifyRouter.js')
+const spotifyRouter = require('./routes/spotifyRouter.js');
+const accountRouter = require('./routes/accountRouter.js');
 
 const app = express();
 app.use(cors());
@@ -18,9 +19,12 @@ const db = require('./db.js');
 
 // Routes
 // --- Spotify access token
-app.use('/api/spotify', spotifyRouter)
+app.use('/api/spotify', spotifyRouter);
 // spotify song routes
-app.use('/songModel', spotifyRouter)
+app.use('/songModel', spotifyRouter);
+// user account routes
+app.use('/account', accountRouter);
+
 
 server.listen(port, () => {
     console.log(`Server running on port ${port}`);
