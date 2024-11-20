@@ -4,7 +4,8 @@
   "main": "db.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "node server.js"
+    "start": "node server.js",
+    "dev": "nodemon server.js"
   },
   "keywords": [],
   "author": "",
@@ -20,6 +21,7 @@
     "mongodb": "^6.10.0",
     "mongoose": "^8.7.3",
     "node-cron": "^3.0.3",
+    "nodemon": "^3.1.7",
     "path": "^0.12.7",
     "querystring": "^0.2.1",
     "socket.io": "^4.8.1",

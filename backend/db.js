@@ -12,7 +12,7 @@ mongoose.connect(process.env.MONGODB_URI)
     console.log('Failed to connect to MongoDB', err);
 });
 
-// import models from models/songModel.js and models/userModel.js
+// import models from /models
 
 const Song = require('./models/songModel.js');
 const User = require('./models/userModel.js');
