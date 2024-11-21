@@ -1,5 +1,3 @@
-import React, { useEffect } from 'react';
-import { useState, useMemo, useCallback } from 'react';
 import './styles/SignInPage.css';
 const SERVER = process.env.REACT_APP_SERVER;
 console.log(SERVER);
