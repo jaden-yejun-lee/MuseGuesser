@@ -1,3 +1,6 @@
+import { useNavigate } from 'react-router-dom';
+
+
 import './styles/SignInPage.css';
 const SERVER = process.env.REACT_APP_SERVER;
 console.log(SERVER);
@@ -8,6 +11,8 @@ console.log(SERVER);
 // IMPLEMENT NAVIGATION
 
 const SignInPage = () => {
+
+    const navigate = useNavigate();
 
     function handleSubmit(event) {
         event.preventDefault();
@@ -26,12 +31,20 @@ const SignInPage = () => {
             switch(response.status){
                 case 200:
                 // successful login
+                navigate('/game');
                 break;
                 case 201:
                 // unsuccessful login
+                alert('Incorrect username, email, or password');
+                break;
+                case 500:
+                // server error
+                alert('Server error');
                 break;
                 default:
-                // error
+                // unknown error
+                alert('Unknown error');
+                console.log(response.status);
             }
         })
 

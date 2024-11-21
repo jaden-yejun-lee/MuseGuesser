@@ -15,7 +15,7 @@ app.use(express.json());
 const port = process.env.PORT || 5000;
 const server = http.createServer(app);
 
-const db = require('./db.js');
+const db = require('./db.js'); // connect to database
 
 // Routes
 // --- Spotify access token
