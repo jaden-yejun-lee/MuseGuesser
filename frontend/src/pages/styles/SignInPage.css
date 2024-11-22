@@ -1,0 +1,51 @@
+.signInHeader {
+    text-align: center;
+    margin-top: 20px;
+}
+
+.signInForm {
+    margin-top: 20px;
+    padding: 20px;
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    width: 300px;
+    border: 1px solid black;
+    border-radius: 15px;
+}
+
+.signInForm label {
+    align-self: left;
+}
+
+.signInForm input {
+    width: 100%;
+    padding: 10px;
+    margin: 5px 0 20px 0;
+    display: inline-block;
+    border: 1px solid #8d8d8d;
+    box-sizing: border-box;
+    border-radius: 5px;
+}
+
+.submitButton {
+    width: 100%;
+    padding: 10px;
+    margin: 5px 0 20px 0;
+    display: inline-block;
+    border: 1px solid #8d8d8d;
+    box-sizing: border-box;
+    border-radius: 5px;
+    background-color: #1DB954;
+    font-size: 20px;
+    font-weight: bold;
+    cursor: pointer;
+    text-decoration: none;
+    color: black;
+    transition : background-color 0.6s;
+}
+
+.submitButton:hover {
+    background-color: #39975a;
+}
