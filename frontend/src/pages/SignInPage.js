@@ -21,32 +21,49 @@ const SignInPage = () => {
         
         // send request to backend
         fetch(`${SERVER}/account/login`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({username, password})
-        }).then(response => {
-            // response is an error code
-            switch(response.status){
-                case 200:
-                // successful login
-                navigate('/game');
-                break;
-                case 201:
-                // unsuccessful login
-                alert('Incorrect username, email, or password');
-                break;
-                case 500:
-                // server error
-                alert('Server error');
-                break;
-                default:
-                // unknown error
-                alert('Unknown error');
-                console.log(response.status);
-            }
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ username, password }),
         })
+          // .then(response => {
+          //     console.log('response status fe: ', response.status)
+          //     // response is an error code
+          //     switch(response.status){
+          //         case 200:
+          //         // successful login
+          //         navigate('/game');
+          //         break;
+          //         case 201:
+          //         // unsuccessful login
+          //         alert('Incorrect username, email, or password');
+          //         break;
+          //         case 500:
+          //         // server error
+          //         alert('Server error');
+          //         break;
+          //         default:
+          //         // unknown error
+          //         alert('Unknown error');
+          //         console.log(response.status);
+          //     }
+          // })
+          .then((response) => response.json())
+          .then((data) => {
+            if (data.userId) {
+              // Successful login
+              // Store user data in localStorage
+              
+              localStorage.setItem("userData", JSON.stringify(data));
+                console.log("dataaaa: ", JSON.stringify(data));
+              navigate("/dailychallenge");
+            }
+          })
+          .catch((error) => {
+            console.error("Error:", error);
+            alert("Error logging in");
+          });
 
     }
     

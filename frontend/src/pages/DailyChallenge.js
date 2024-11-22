@@ -16,11 +16,13 @@ const DailyChallengePage = () => {
   const [gameState, setGameState] = useState("ready"); // "ready", "playing", or "finished"
   const navigate = useNavigate();
 
+  const userData = localStorage.getItem("userData");
+  const { userId } = JSON.parse(userData);
+  const { dailyScore } = JSON.parse(userData)
+
   // Fetch daily challenge on component mount
   useEffect(() => {
     const fetchDailyChallenge = async () => {
-        const userId = localStorage.getItem("userId");
-        console.log('sdfasdf: ', userId)
         if (!userId) {
           setError("Please log in to play the daily challenge");
           navigate("/login"); // Redirect to login if no userId found
@@ -73,7 +75,6 @@ const DailyChallengePage = () => {
   };
 
   const saveScoreToDatabase = async (finalScore) => {
-    const userId = localStorage.getItem('userId');
     console.log('userId from DailyChallenge(FE): ', userId);
     try {
       const response = await fetch(`${SERVER}/game/updateDailyScore`, {
