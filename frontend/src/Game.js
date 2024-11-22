@@ -1,6 +1,8 @@
 import React, { useState } from "react";
 import "./Game.css";
 
+const SERVER = process.env.REACT_APP_SERVER;
+
 function Game() {
   const [selectedGenre, setSelectedGenre] = useState(""); // state to hold genre
   const [answerOptions, setAnswerOptions] = useState([]); // state to hold 4 answer options
@@ -9,12 +11,15 @@ function Game() {
   const [audio, setAudio] = useState(null);               // state to hold audio player
   const [startTime, setStartTime] = useState(null);       // state to hold time
   const [points, setPoints] = useState(0);                // state to hold points
+  const [round, setRound] = useState(1);
 
   // play random previewurl
   const playRandomPreview = async () => {
+    
+
     try {
       const response = await fetch(
-        `http://localhost:5000/songModel/recommendations?genres=${selectedGenre}&limit=30`
+        `${SERVER}/songModel/recommendations?genres=${selectedGenre}&limit=30`
       );
       const data = await response.json();
 
@@ -90,6 +95,8 @@ function Game() {
             <option value="rock">Rock</option>
             <option value="hip-hop">Hip-Hop</option>
             <option value="jazz">Jazz</option>
+            <option value="electronic">Electronic</option>
+            <option value="classical">Classical</option>
           </select>
         </label>
 
@@ -102,7 +109,9 @@ function Game() {
               <button
                 key={index}
                 onClick={() =>
-                  handleAnswerSelection(`${option.name} - ${option.artists[0].name}`)
+                  handleAnswerSelection(
+                    `${option.name} - ${option.artists[0].name}`
+                  )
                 }
               >
                 {`${option.name} - ${option.artists[0].name}`}
