@@ -7,7 +7,7 @@ const FrontPage = () => {
         <div className="front-page">
             <h1>MuseGuesser</h1>
             <div className="links">
-                <Link to="/game" className="link-button">Play Game</Link>
+                <Link to="/dailychallenge" className="link-button">Daily Challenge</Link>
                 <Link to="/signin" className="link-button">Sign In</Link>
                 <Link to="/signup" className="link-button">Sign Up</Link>
             </div>
