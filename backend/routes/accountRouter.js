@@ -23,8 +23,13 @@ router.post("/login", (req, res) => {
         if(user){  // user exists
             // compare password with hashing
             bcrypt.compare(req.body.password, user.password).then(result => {
+                console.log('result be: ', result)
                 if(result){ // password is correct
-                    res.status(200).send("Login success");
+                    const userData = {
+                        userId: user._id,
+                        dailyScore: user.dailyScore
+                    }
+                    res.status(200).json(userData);
                 } else { // password is incorrect
                     res.status(201).send("Login failure");
                 }
