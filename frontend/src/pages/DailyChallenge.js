@@ -29,6 +29,11 @@ const DailyChallengePage = () => {
           return;
         }
 
+        if (dailyScore !== -1) {
+          alert("You have already played the daily challenge. Wait another day.");
+          navigate("/game");
+        }
+
       try {
         const response = await fetch(`${SERVER}/game/dailyChallenge`);
         if (!response.ok) {
