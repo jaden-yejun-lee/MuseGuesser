@@ -1,7 +1,7 @@
 import React, { useState } from "react";
-import "./App.css";
+import "./Game.css";
 
-function App() {
+function Game() {
   const [selectedGenre, setSelectedGenre] = useState(""); // state to hold genre
   const [answerOptions, setAnswerOptions] = useState([]); // state to hold 4 answer options
   const [correctAnswer, setCorrectAnswer] = useState(""); // state to hold correct answer
@@ -116,4 +116,4 @@ function App() {
   );
 }
 
-export default App;
+export default Game;

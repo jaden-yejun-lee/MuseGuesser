@@ -2,7 +2,7 @@ import React from 'react';
 import { BrowserRouter as Router, Route, Routes } from 'react-router-dom';
 import SignInPage from './pages/SignInPage.js';
 import SignUpPage from './pages/SignUpPage.js';
-import App from './App.js';
+import Game from './Game.js';
 
 
 const PageRouter = () => {
@@ -17,7 +17,7 @@ const PageRouter = () => {
                     <a href="/signup">Sign Up</a>
                 </div>
                 } />
-                <Route path="/game" element={<><App/></>} />
+                <Route path="/game" element={<><Game/></>} />
                 <Route path="/signin" element={<><SignInPage/></>} />
                 <Route path="/signup" element={<><SignUpPage/></>} />
             </Routes>
