@@ -40,7 +40,9 @@ server.listen(port, () => {
 cron.schedule("0 0 * * *", async () => {
   console.log(`Cron job executed at: ${new Date().toISOString()}`);
   await runCronJob();
+}, {
+  timezone: "America/Los_Angeles",
 });
 
 // uncomment this and run server to generate new dailychallenge questions
-//runCronJob();
+// runCronJob();
