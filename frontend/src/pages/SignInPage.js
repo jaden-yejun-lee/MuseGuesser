@@ -57,7 +57,7 @@ const SignInPage = () => {
               
               localStorage.setItem("userData", JSON.stringify(data));
                 console.log("dataaaa: ", JSON.stringify(data));
-              navigate("/dailychallenge");
+              navigate("/");
             }
           })
           .catch((error) => {
