@@ -1,6 +1,7 @@
 const cron = require("node-cron");
 const DailyChallenge = require("../models/dailyChallenge");
 const User = require("../models/userModel");
+const port = process.env.PORT || 5000;
 
 // How long we should keep past daily challenge questions in days
 const RETENTION_PERIOD = 7
@@ -20,7 +21,7 @@ async function generateDailyTracks() {
 
         try {
             const response = await fetch(
-              `http://localhost:8000/songModel/recommendations?genres=${genre}&limit=50`
+              `http://localhost:${port}/songModel/recommendations?genres=${genre}&limit=50`
             );
             const data = await response.json();
             const tracksWithPreview = data.tracks.filter((track) => track.preview_url);

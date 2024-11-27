@@ -49,7 +49,7 @@ const SignUpPage = () => {
                 alert('Server error');
                 break;
               default:
-                alert(response.status);
+                alert("Error: Non 200 Status code");
             }}).catch((error) => {
             console.error('Error:', error);
           });
