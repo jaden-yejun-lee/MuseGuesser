@@ -11,14 +11,12 @@ console.log(SERVER);
 const SignUpPage = () => {
     const navigate = useNavigate();
     const [loginError, setLoginError] = useState('');
-
     function handleSubmit(e) {
         e.preventDefault(); // stop the page transition
     
         const email = e.target.email.value;
         const username = e.target.username.value; // username OR email
         const password = e.target.password.value; // password
-    
         fetch(`${SERVER}/account/signup`, { // send request to backend
             method: 'POST',
             headers: {
@@ -51,7 +49,7 @@ const SignUpPage = () => {
                 alert('Server error');
                 break;
               default:
-                alert('Error: Non 200 status code');
+                alert("Error: Non 200 Status code");
             }}).catch((error) => {
             console.error('Error:', error);
           });

@@ -55,4 +55,20 @@ router.post("/updateDailyScore", async(req, res) => {
     }
 })
 
+router.get("/dailyChallengeScores", async (req, res) => {
+    try {
+
+        const users = await User.find();
+        if (!users) {
+            return res.status(404);
+        }
+        console.log(users)
+        res.status(200).json({users: users});
+
+    } catch (error) {
+        console.error("Error fetching daily challenge scores:", error);
+        res.status(500).json({ error: "Internal server error." });
+    }
+});
+
 module.exports = router;

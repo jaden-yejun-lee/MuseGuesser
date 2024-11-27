@@ -45,4 +45,4 @@ cron.schedule("0 0 * * *", async () => {
 });
 
 // uncomment this and run server to generate new dailychallenge questions
-// runCronJob();
+runCronJob();
