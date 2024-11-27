@@ -20,7 +20,7 @@ async function generateDailyTracks() {
 
         try {
             const response = await fetch(
-              `http://localhost:5000/songModel/recommendations?genres=${genre}&limit=50`
+              `http://localhost:8000/songModel/recommendations?genres=${genre}&limit=50`
             );
             const data = await response.json();
             const tracksWithPreview = data.tracks.filter((track) => track.preview_url);

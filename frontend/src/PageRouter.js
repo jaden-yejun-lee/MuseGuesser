@@ -5,6 +5,7 @@ import SignUpPage from './pages/SignUpPage.js';
 import FrontPage from './pages/FrontPage.js';
 import Game from './Game.js';
 import DailyChallengePage from './pages/DailyChallenge.js';
+import DailyChallengeLeaderboard from './pages/DailyChallengeLeaderboard.js';
 
 
 const PageRouter = () => {
@@ -16,6 +17,7 @@ const PageRouter = () => {
                 <Route path="/signin" element={<><SignInPage/></>} />
                 <Route path="/signup" element={<><SignUpPage/></>} />
                 <Route path="/dailychallenge" element={<><DailyChallengePage/></>} />
+                <Route path="/dailychallenge/leaderboard" element={<><DailyChallengeLeaderboard/></>} />
             </Routes>
         </Router>
     );

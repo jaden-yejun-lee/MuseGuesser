@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom';
-
+import React from 'react';
 
 import './styles/SignInPage.css';
 const SERVER = process.env.REACT_APP_SERVER;
@@ -18,7 +18,7 @@ const SignInPage = () => {
         event.preventDefault();
         const username = event.target['username'].value; // username OR email
         const password = event.target['password'].value; // password
-        
+        console.log(`${SERVER}/account/login`);
         // send request to backend
         fetch(`${SERVER}/account/login`, {
           method: "POST",

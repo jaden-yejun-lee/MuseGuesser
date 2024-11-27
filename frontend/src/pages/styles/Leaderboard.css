@@ -1,0 +1,35 @@
+/* Leaderboard.css */
+.leaderboard-container {
+    max-width: 600px;
+    margin: 50px auto;
+    text-align: center;
+    font-family: Arial, sans-serif;
+  }
+  
+  .leaderboard-title {
+    font-size: 2rem;
+    margin-bottom: 20px;
+  }
+  
+  .leaderboard-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 0 auto;
+  }
+  
+  .leaderboard-table th,
+  .leaderboard-table td {
+    border: 1px solid #ddd;
+    padding: 10px;
+    text-align: center;
+  }
+  
+  .leaderboard-table th {
+    background-color: #f4f4f4;
+  }
+  
+  .error {
+    color: red;
+    font-size: 1.2rem;
+  }
+  
