@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 
+import { MdOutlineReplay } from "react-icons/md";
+
 const SERVER = process.env.REACT_APP_SERVER;
 
 const DailyChallengePage = () => {
@@ -86,6 +88,15 @@ const DailyChallengePage = () => {
 
     if (audio) {
       audio.volume = newVolume / 100
+    }
+  };
+
+  // Replay functionality
+  const handleReplay = () => {
+    if (audio) {  // If we already have a song
+      audio.currentTime = 0;
+      audio.play();   // replay the song, not adjusting start time
+                      // TODO: we can incur a point penalty here
     }
   };
 
@@ -185,7 +196,12 @@ const DailyChallengePage = () => {
       {/* Game Playing */}
       {gameState === "playing" && (
         <div>
-          <h3>Question {currentRound + 1}</h3>
+          <div style={{display: "flex", justifyContent: "center", alignItems: "center"}}> {/* TODO: formatting */}
+            <h3>Question {currentRound + 1}</h3>
+            <button onClick={handleReplay}>
+              <MdOutlineReplay size={24} />
+            </button>
+          </div>
           {isPlaying && (
             <div>
               {currentQuestion.options.map((option, index) => (
