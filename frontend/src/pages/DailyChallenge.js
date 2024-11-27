@@ -10,6 +10,7 @@ const DailyChallengePage = () => {
   const [currentRound, setCurrentRound] = useState(0); // Track the current question
   const [isPlaying, setIsPlaying] = useState(false); // Whether a question is active
   const [audio, setAudio] = useState(null); // Audio player
+  const [volume, setVolume] = useState(50);  // Audio volume
   const [startTime, setStartTime] = useState(null); // Start time for scoring
   const [points, setPoints] = useState(0); // Total points
   const [message, setMessage] = useState(""); // Feedback messages
@@ -77,6 +78,15 @@ const DailyChallengePage = () => {
     setIsPlaying(true);
     setStartTime(Date.now());
     setMessage(""); // Clear the message when starting a new question
+  };
+
+  const handleVolumeChange = (e) => {
+    const newVolume = e.target.value
+    setVolume(newVolume)
+
+    if (audio) {
+      audio.volume = newVolume / 100
+    }
   };
 
   const saveScoreToDatabase = async (finalScore) => {
@@ -190,6 +200,19 @@ const DailyChallengePage = () => {
           )}
           <h4>Total Points: {points}</h4>
           {message && <div className="feedback">{message}</div>}
+
+          <div class="volume-control">
+            <label for="volume-slider">Volume:</label>
+            <input
+              id="volume-slider"
+              type="range"
+              min="0"
+              max="100"
+              value={volume}
+              onChange={handleVolumeChange}
+            />
+            <span id="volume-value">{volume}%</span>
+          </div>
         </div>
       )}
 
