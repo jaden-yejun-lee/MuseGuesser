@@ -8,7 +8,7 @@ const QuestionComponent = ({ idx, questionSet, onSubmit }) => {
   useEffect(() => {
     // Record the start time when the component is mounted
     setStartTime(Date.now());
-  }, []);
+  }, [idx, questionSet]);
 
   const handleOptionClick = (index) => {
     console.log("index", index)

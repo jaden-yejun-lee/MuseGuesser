@@ -3,8 +3,12 @@ import React, { useEffect, useState } from "react";
 // A timeout bar used to show the time left to answer a question
 //  totalTime - in seconds
 //  onTimeout - function to trigger on timeout
-const TimeoutBar = ({ totalTime, onTimeout }) => {
+const TimeoutBar = ({ totalTime, onTimeout, resetTrigger }) => {
   const [timeLeft, setTimeLeft] = useState(totalTime);
+
+  useEffect(() => {
+    setTimeLeft(totalTime)
+  }, [resetTrigger, totalTime])
 
   useEffect(() => {
     const interval = setInterval(() => {

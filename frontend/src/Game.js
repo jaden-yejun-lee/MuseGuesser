@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import "./Game.css";
 import { useLocation } from "react-router-dom";
 import QuestionComponent from "./pages/components/QuestionComponent";
+import TimeoutBar from "./pages/components/TimeoutBar";
 
 const SERVER = process.env.REACT_APP_SERVER;
 
@@ -11,78 +12,15 @@ function Game() {
   const [correctAnswer, setCorrectAnswer] = useState(""); // state to hold correct answer
   const [isPlaying, setIsPlaying] = useState(false);      // state to hold current round
   const [audio, setAudio] = useState(null);               // state to hold audio player
-  const [startTime, setStartTime] = useState(null);       // state to hold time
   const [points, setPoints] = useState(0);                // state to hold points
-  const [round, setRound] = useState(1);
   const [idx, setIdx] = useState(0);                      // state to hold which question we are playing
+  const [resetTrigger, setResetTrigger] = useState(0)     // state to hold timeout reset trigger
 
   const location = useLocation()
   const { state } = location || {}
 
   const userData = localStorage.getItem("userData");
   const { userId } = JSON.parse(userData);
-
-  // play random previewurl
-  const playRandomPreview = async () => {
-
-
-    try {
-      const response = await fetch(
-        `${SERVER}/songModel/recommendations?genres=${selectedGenre}&limit=30`
-      );
-      const data = await response.json();
-
-      // only get tracks with previewurls
-      const tracksWithPreview = data.tracks.filter((track) => track.preview_url);
-
-      if (tracksWithPreview.length >= 4) {
-        // pick one random song as correct answer
-        const correctTrack = tracksWithPreview[Math.floor(Math.random() * tracksWithPreview.length)];
-        // get 3 wrong answers
-        const incorrectTracks = tracksWithPreview
-          .filter((track) => track !== correctTrack)
-          .sort(() => 0.5 - Math.random())
-          .slice(0, 3);
-
-        // combine and shuffle all 4 answer choices
-        const options = [correctTrack, ...incorrectTracks].sort(() => 0.5 - Math.random());
-
-        setAnswerOptions(options);
-        setCorrectAnswer(`${correctTrack.name} - ${correctTrack.artists[0].name}`);
-
-        // play the correct song
-        const newAudio = new Audio(correctTrack.preview_url);
-        newAudio.play();
-        setAudio(newAudio);
-        setIsPlaying(true);
-        setStartTime(Date.now());
-      } else {
-        alert("Not enough previews available for this genre.");
-      }
-    } catch (error) {
-      console.error("Error fetching recommendations:", error);
-    }
-  };
-
-
-  const handleAnswerSelection = (answer) => {
-    // stop playing song
-    if (audio) {
-      audio.pause();
-      setAudio(null);
-    }
-    setIsPlaying(false);
-    if (answer === correctAnswer) {
-      const earnedPoints = calculateScore()
-      setPoints((prevPoints) => prevPoints + earnedPoints);
-      // NEED TO MODIFY AFTER
-      alert(`Correct! ${earnedPoints} points.`);
-    } else {
-      alert(
-        `Incorrect. 0 points.`
-      );
-    }
-  };
 
   // Handle answer submission to the server for verification
   const handleAnswerSubmission = async(idx, selectedOption, elapsedTime) => {
@@ -113,14 +51,16 @@ function Game() {
       // Post-verifcation
       if (data.correct === true) {  // correct answer
         setPoints(points + data.score)
-        alert("Correct answer!")
+        console.log("Correct answer!")
       } else {
-        alert("Wrong answer!")
+        console.log("Wrong answer!")
       }
 
       // Increase current index
       setIdx(idx + 1)
 
+      // Reset timeout
+      setResetTrigger(resetTrigger + 1)
     } catch (error) {
       console.error("Error submitting answers:", error);
     }
@@ -137,6 +77,17 @@ function Game() {
     return earnedPoints
   }
 
+  // Timeout handler
+  const handleTimeout = () => {
+    console.log("Timeout!")
+
+    // Increase current index
+    setIdx(idx + 1)
+
+    // Reset timeout
+    setResetTrigger(resetTrigger + 1)
+  }
+
   return (
     <div className="App">
       <header className="App-header">
@@ -144,7 +95,10 @@ function Game() {
         <h4>Total Points: {points}</h4>
 
         {idx < state.questionSets.length ? (
-          <QuestionComponent idx={idx} questionSet={state.questionSets[idx]} onSubmit={handleAnswerSubmission}/>
+          <>
+            <TimeoutBar totalTime={30} onTimeout={handleTimeout} resetTrigger={resetTrigger}/>
+            <QuestionComponent idx={idx} questionSet={state.questionSets[idx]} onSubmit={handleAnswerSubmission}/>
+          </>
         ) : (
           <p>You have completed all the questions! Congratulations!</p>
         )}
