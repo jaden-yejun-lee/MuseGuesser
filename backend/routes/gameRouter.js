@@ -28,6 +28,7 @@ router.post("/createRoom", async (req, res) => {
     try {
         let newRoom = new Room()
         console.log("Created room with code", newRoom.getRoomCode())
+        res.status(200).json({code: newRoom.getRoomCode()})
     } catch(error) {
         console.error("Error creating room:", error);
         res.status(500).json({ error: "Internal server error." });
