@@ -2,7 +2,7 @@ class QuestionSet { // Class for multiple-choice with one answer
     static QID = 0  // unique identifier
 
     constructor(tracks, correct) {
-        this.id = QID++
+        this.id = QuestionSet.QID++
 
         this.options = tracks.filter((track) => {
             return {
