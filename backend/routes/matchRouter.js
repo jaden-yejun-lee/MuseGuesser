@@ -25,15 +25,18 @@ router.post("/uploadMatch", (req, res) => {
     });
 });
 
-router.get("/matchHistory", (req, res) => {
+router.post("/matchHistory", (req, res) => {
     // get all matches with req userid
-    const userid = req.body.id;
+    const userid = req.body.userId;
     // find username associated with userid
     userModel.findById(userid).then((user) => {
+        if(!user){
+            res.status(404).json({ error: "User not found." });
+        }
         matchModel.find(
             {players: { $elemMatch: { username: user.username } } }
         ).then((matches) => {
-            res.json(matches);
+            res.status(200).json(matches);
         }).catch((error) => {
             console.error("Error fetching match history:", error);
             res.status(500).json({ error: "Internal server error." });

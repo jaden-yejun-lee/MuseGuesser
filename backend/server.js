@@ -22,6 +22,7 @@ const port = process.env.PORT || 5000;
 const server = http.createServer(app);
 
 const db = require('./db.js'); // connect to database
+const matchModel = require('./models/matchModel.js');
 
 // Routes
 // --- Spotify access token
@@ -48,4 +49,4 @@ cron.schedule("0 0 * * *", async () => {
 });
 
 // uncomment this and run server to generate new dailychallenge questions
-runCronJob();
+//runCronJob();

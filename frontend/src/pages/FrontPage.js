@@ -31,7 +31,11 @@ const FrontPage = () => {
                 {!loggedIn ?<>  
                     <Link to="/signin" className="link-button">Sign In</Link>
                     <Link to="/signup" className="link-button">Sign Up</Link>
-                </>: <Link to="/game" className="link-button">Play Game</Link>}
+                </>: 
+                <>
+                    <Link to="/game" className="link-button">Play Game</Link>
+                    <Link to="/matchhistory" className="link-button">Match History</Link>
+                </>}
             </div>
         </div>
     );

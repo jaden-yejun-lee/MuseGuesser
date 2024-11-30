@@ -30,16 +30,16 @@ router.post("/login", (req, res) => {
                     }
                     res.status(200).json(userData);
                 } else { // password is incorrect
-                    res.status(201).send("Login failure");
+                    res.status(201).json({error: "Incorrect username, email, or password"});
                 }
             }).catch(err => {
-                res.status(500).send("Internal server error");
+                res.status(500).json({error: "Internal server error: " + err});
             })
         } else { // user does not exist
-            res.status(201).send("Login failure");
+            res.status(201).json({error: "Incorrect username, email, or password"});
         }
     }).catch(err => {
-        res.status(500).send("Internal server error: " + err);
+        res.status(500).json({error: "Internal server error: " + err});
     });    
 });
 

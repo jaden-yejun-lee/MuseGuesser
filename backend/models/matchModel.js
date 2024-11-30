@@ -2,7 +2,7 @@ const mongoose = require("mongoose");
 
 // Match Schema
 const matchSchema = new mongoose.Schema({
-    // game type: "daily" or "room" or "single"
+    // game type: "Daily Challenge" or "Room" or "Single"
     gameType: String,
     // date when game ended
     date: Date,
