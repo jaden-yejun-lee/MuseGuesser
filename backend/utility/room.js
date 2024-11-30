@@ -55,7 +55,7 @@ class Room {
     }
 
     // players
-    #addPlayer(player) {
+    #addPlayer(player) {    // Player
         this.players.add(player)
     }
 
