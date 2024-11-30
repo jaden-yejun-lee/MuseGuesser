@@ -41,6 +41,7 @@ class Room {
 
     /* Functionalities */
     join(player) {
+        console.log("Player %s join room %d", player, this.id)
         this.#addPlayer(player)
     }
 
@@ -102,10 +103,6 @@ function test() {
     room3.close()
 
     let room5 = new Room()
-
-    for (let i = 0; i < 996; i++) {
-        new Room()
-    }
 
     console.log(Room.codePair)
 }

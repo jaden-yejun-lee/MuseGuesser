@@ -25,7 +25,7 @@ router.post("/joinRoom", async (req, res) => {
             room.join(userId)   // join
 
             // Response
-            res.status(200).json({ code: code, players: room.players })
+            res.status(200).json({ code: code, players: Array.from(room.players) })
         }
         else {
             res.status(400) // bad request, room doesn't exist
@@ -41,7 +41,11 @@ router.post("/joinRoom", async (req, res) => {
 
 router.post("/createRoom", async (req, res) => {
     try {
+        const { userId } = req.body   // Get room code & player infos
+
         let newRoom = new Room()
+        newRoom.join(userId)
+
         console.log("Created room with code", newRoom.getRoomCode())
         res.status(200).json({code: newRoom.getRoomCode()})
     } catch(error) {
