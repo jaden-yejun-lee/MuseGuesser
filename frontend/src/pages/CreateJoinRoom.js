@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 
 const SERVER = process.env.REACT_APP_SERVER;
 
 const CreateJoinRoom = () => {
+    const navigate = useNavigate()
+
     const createRoom = async (e) => {
         try {
             const response = await fetch(`${SERVER}/game/createRoom`, {
@@ -19,6 +21,8 @@ const CreateJoinRoom = () => {
 
             const data = await response.json();
             console.log("Room created:", data);
+
+            navigate("game", {state: {code: data.code}})
           } catch (error) {
             console.error("Error creating room:", error);
           }
@@ -28,7 +32,7 @@ const CreateJoinRoom = () => {
         <div className="create-join-room">
             <h1>MuseGuesser</h1>
             <div className="links">
-                <Link to="game" className="link-button" onClick={createRoom} >Create Room</Link>
+                <button onClick={createRoom}>Create Room</button>
                 <Link to="join" className="link-button">Join Room</Link>
             </div>
         </div>

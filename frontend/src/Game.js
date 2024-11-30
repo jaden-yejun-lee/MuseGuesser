@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import "./Game.css";
+import { useLocation } from "react-router-dom";
 
 const SERVER = process.env.REACT_APP_SERVER;
 
@@ -13,9 +14,12 @@ function Game() {
   const [points, setPoints] = useState(0);                // state to hold points
   const [round, setRound] = useState(1);
 
+  const location = useLocation()
+  const { state } = location || {}
+
   // play random previewurl
   const playRandomPreview = async () => {
-    
+
 
     try {
       const response = await fetch(
@@ -82,6 +86,7 @@ function Game() {
   return (
     <div className="App">
       <header className="App-header">
+        <h1>Room {state.code}</h1>
         <label>
           Select Genre:
           <select
