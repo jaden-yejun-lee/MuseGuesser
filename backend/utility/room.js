@@ -27,6 +27,8 @@ class Room {
 
         this.code = this.generateRoomCode()
         Room.codePair[this.code] = this             // generate room code & add to the dictionary
+
+        console.log(Room.codePair)
     }
 
     // generate room code, which is a number ROOM_CODE_DIGITS long
