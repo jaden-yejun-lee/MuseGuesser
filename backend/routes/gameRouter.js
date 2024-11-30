@@ -5,12 +5,34 @@ const { getAccessToken } = require("../utility/tokenManager");
 const DailyChallenge = require("../models/dailyChallenge");
 const User = require("../models/userModel");
 const mongoose = require("mongoose");
+const { Room } = require("../utility/room");
 
 function normalizeDate(date) {
     const normalized = new Date(date);
     normalized.setUTCHours(0, 0, 0, 0);
     return normalized;
 }
+
+router.get("/room", async (req, res) => {
+    try {
+
+
+
+    } catch (error) {
+        console.log("Error fetch room status:", error);
+        res.status(500).json({ error: "Internal server error." });
+    }
+})
+
+router.post("/createRoom", async (req, res) => {
+    try {
+        let newRoom = new Room()
+        console.log("Created room with code", newRoom.getRoomCode())
+    } catch(error) {
+        console.error("Error creating room:", error);
+        res.status(500).json({ error: "Internal server error." });
+    }
+})
 
 router.get("/dailyChallenge", async (req, res) => {
     try {
@@ -42,7 +64,7 @@ router.post("/updateDailyScore", async(req, res) => {
 
         // if (user.dailyScore !== -1) {
         //     return res.status(400).json({ error: "Daily challenge already completed." });
-        // }   
+        // }
 
         user.dailyScore = score;
         await user.save();

@@ -28,10 +28,10 @@ const FrontPage = () => {
             <h1>MuseGuesser</h1>
             <div className="links">
                 {!doneDaily && loggedIn ? <Link to="/dailychallenge" className="link-button">Daily Challenge</Link> : null}
-                {!loggedIn ?<>  
+                {!loggedIn ?<>
                     <Link to="/signin" className="link-button">Sign In</Link>
                     <Link to="/signup" className="link-button">Sign Up</Link>
-                </>: <Link to="/game" className="link-button">Play Game</Link>}
+                </>: <Link to="/room" className="link-button">Play Game</Link>}
             </div>
         </div>
     );
