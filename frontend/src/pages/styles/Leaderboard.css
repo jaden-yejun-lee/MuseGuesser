@@ -1,35 +1,111 @@
-/* Leaderboard.css */
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600&display=swap');
+
 .leaderboard-container {
-    max-width: 600px;
-    margin: 50px auto;
-    text-align: center;
-    font-family: Arial, sans-serif;
+  max-width: 700px;
+  margin: 40px auto;
+  background: linear-gradient(135deg, #f6f8f9 0%, #e5ebee 100%);
+  border-radius: 15px;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+  overflow: hidden;
+  font-family: 'Poppins', sans-serif;
+}
+
+.leaderboard-header {
+  background: linear-gradient(to right, #6a11cb 0%, #2575fc 100%);
+  color: white;
+  padding: 20px;
+  text-align: center;
+}
+
+.leaderboard-title {
+  margin: 0;
+  font-size: 2.2rem;
+  font-weight: 600;
+  letter-spacing: 1px;
+}
+
+.leaderboard-content {
+  padding: 20px;
+}
+
+.leaderboard-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0 10px;
+}
+
+.leaderboard-table thead th {
+  background-color: #f1f5f9;
+  color: #333;
+  padding: 15px;
+  text-transform: uppercase;
+  font-size: 0.9rem;
+  letter-spacing: 1px;
+}
+
+.leaderboard-table tbody tr {
+  transition: all 0.3s ease;
+  background-color: white;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+}
+
+.leaderboard-table tbody tr:hover {
+  transform: scale(1.02);
+  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.1);
+}
+
+.leaderboard-table td {
+  padding: 15px;
+  text-align: center;
+  color: #555;
+}
+
+/* Special styling for top 3 places */
+.first-place {
+  background: linear-gradient(to right, #ffd700, #ffeb3b) !important;
+  color: #333 !important;
+}
+
+.second-place {
+  background: linear-gradient(to right, #c0c0c0, #e0e0e0) !important;
+  color: #333 !important;
+}
+
+.third-place {
+  background: linear-gradient(to right, #cd7f32, #a0522d) !important;
+  color: white !important;
+}
+
+/* Loading and Error States */
+.loading-spinner {
+  text-align: center;
+  color: #2575fc;
+  font-size: 1.5rem;
+  padding: 50px;
+}
+
+.error-message {
+  text-align: center;
+  color: #ff4d4d;
+  font-size: 1.2rem;
+  padding: 20px;
+  background-color: #fff0f0;
+  border-radius: 10px;
+}
+
+/* Responsive Design */
+@media (max-width: 600px) {
+  .leaderboard-container {
+    margin: 20px 10px;
+    max-width: calc(100% - 20px);
   }
-  
-  .leaderboard-title {
-    font-size: 2rem;
-    margin-bottom: 20px;
-  }
-  
+
   .leaderboard-table {
-    width: 100%;
-    border-collapse: collapse;
-    margin: 0 auto;
+    font-size: 0.9rem;
   }
-  
-  .leaderboard-table th,
-  .leaderboard-table td {
-    border: 1px solid #ddd;
-    padding: 10px;
-    text-align: center;
-  }
-  
+
+  .leaderboard-table td, 
   .leaderboard-table th {
-    background-color: #f4f4f4;
+    padding: 10px;
   }
-  
-  .error {
-    color: red;
-    font-size: 1.2rem;
-  }
-  
+}
