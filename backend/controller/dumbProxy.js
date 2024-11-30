@@ -1,19 +1,19 @@
 const { getAccessToken } = require("../utility/tokenManager");
 const axios = require('axios');
-const providerProxy = require("./providerProxy");
+const ProviderProxy = require("./providerProxy");
 
 /* Singleton class to manage all spotify-related Requests */
-class SpotifyProxy extends providerProxy {
+class DumbProxy extends ProviderProxy {
     static instance = null;
 
     // Singleton method
     static getInstance() {
         // Create a singleton instance if none available
-        if (SpotifyProxy.instance == null) {
-            SpotifyProxy.instance = new SpotifyProxy()
+        if (DumbProxy.instance == null) {
+            DumbProxy.instance = new DumbProxy()
         }
 
-        return SpotifyProxy.instance
+        return DumbProxy.instance
     }
 
     // Get track with ID
@@ -47,39 +47,31 @@ class SpotifyProxy extends providerProxy {
     // Recommends tracks from genre
     //  TODO: for now we assume there is only one genre
     async recommendTracks(genre, limit = 10) {
-        try {
-            const accessToken = await getAccessToken();
-            const response = await axios.get(
-            `https://api.spotify.com/v1/recommendations?seed_genres=${genre}&limit=${limit}`,
-            {
-                headers: {
-                    Authorization: `Bearer ${accessToken}`,
-                },
+        // Dumb proxy provides a list of randomly-generated tracks
+        let tracks = []
+        for (let i = 0; i < limit; i++) {
+            let track = {
+                genre: genre,
+                artists: [
+                    {
+                        "name": `Artist ${i + 1}`,
+                    }
+                ],
+                name: `Track ${i + 1}`,
+                preview_url: `dumb`   // empty
             }
-            ).catch((error) => console.log(error));
-
-            console.log("Getting responses")
-            response.data.tracks.forEach(track => {
-                track.genre = genre // append genre to the song
-                this.addToCache(track.id, track)
-            });
-
-            return response.data.tracks
-        } catch (error) {
-            // TODO: error handling
-            throw error
+            tracks.push(track)
         }
-
-        // TODO: Form recommendation from cache
-        //      TODO: could race condition happens here?
+        return tracks
     }
 }
 
 async function test() {
-    const proxy = SpotifyProxy.getInstance()
-    console.log(proxy.getRandomTrackByGenre("pop"))
-    await proxy.recommendTracks("pop", 10)
-    console.log(proxy.getRandomTrackByGenre("pop"))
+    let proxy = DumbProxy.getInstance()
+    let tracks = await proxy.recommendTracks("pop")
+    console.log(tracks)
 }
 
-module.exports = SpotifyProxy
+// test()
+
+module.exports = DumbProxy
