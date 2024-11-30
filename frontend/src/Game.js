@@ -68,11 +68,7 @@ function Game() {
     }
     setIsPlaying(false);
     if (answer === correctAnswer) {
-      // exponential decay calculation for points
-      const timeElapsed = (Date.now() - startTime) / 1000;
-      const initialPoints = 100;  // max possible points
-      const decayRate = 0.05;     // how quickly points decrease over time
-      const earnedPoints = Math.round(initialPoints * Math.exp(-decayRate * timeElapsed));
+      const earnedPoints = calculateScore()
       setPoints((prevPoints) => prevPoints + earnedPoints);
       // NEED TO MODIFY AFTER
       alert(`Correct! ${earnedPoints} points.`);
@@ -82,6 +78,17 @@ function Game() {
       );
     }
   };
+
+  // Calculate local score when submitting answer
+  const calculateScore = () => {
+    // exponential decay calculation for points
+    const timeElapsed = (Date.now() - startTime) / 1000;
+    const initialPoints = 100;  // max possible points
+    const decayRate = 0.05;     // how quickly points decrease over time
+    const earnedPoints = Math.round(initialPoints * Math.exp(-decayRate * timeElapsed));
+
+    return earnedPoints
+  }
 
   return (
     <div className="App">
