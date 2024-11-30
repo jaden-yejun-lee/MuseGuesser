@@ -32,8 +32,14 @@ const JoinRoom = () => {
       const data = await response.json();
       console.log("Joined room:", data);
 
-      navigate("/room/game", {state: {code: data.code}})
+      navigate("/room/game", {state: {
+        code: data.code,
+        questionSets: data.questionSets,
+        progress: data.progress,
+        score: data.score
+      }})
     } catch (error) {
+      alert("Failed to join room")
       console.error("Error joining room:", error);
     }
   }

@@ -31,7 +31,7 @@ const QuestionComponent = ({ idx, questionSet, onSubmit }) => {
 
   return (
     <div className="question-component" style={{ padding: "20px", maxWidth: "600px", margin: "auto" }}>
-      <h2>Question {idx}</h2>
+      <h2>Question {idx + 1}</h2>
       <p>Choose the correct track based on the preview:</p>
       <ul style={{ listStyleType: "none", padding: 0 }}>
         {questionSet.options.map((option, index) => (

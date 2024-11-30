@@ -7,20 +7,20 @@ import TimeoutBar from "./pages/components/TimeoutBar";
 const SERVER = process.env.REACT_APP_SERVER;
 
 function Game() {
-  const [selectedGenre, setSelectedGenre] = useState(""); // state to hold genre
-  const [answerOptions, setAnswerOptions] = useState([]); // state to hold 4 answer options
-  const [correctAnswer, setCorrectAnswer] = useState(""); // state to hold correct answer
-  const [isPlaying, setIsPlaying] = useState(false);      // state to hold current round
-  const [audio, setAudio] = useState(null);               // state to hold audio player
-  const [points, setPoints] = useState(0);                // state to hold points
-  const [idx, setIdx] = useState(0);                      // state to hold which question we are playing
-  const [resetTrigger, setResetTrigger] = useState(0)     // state to hold timeout reset trigger
-
   const location = useLocation()
   const { state } = location || {}
 
   const userData = localStorage.getItem("userData");
   const { userId } = JSON.parse(userData);
+
+  const [selectedGenre, setSelectedGenre] = useState(""); // state to hold genre
+  const [answerOptions, setAnswerOptions] = useState([]); // state to hold 4 answer options
+  const [correctAnswer, setCorrectAnswer] = useState(""); // state to hold correct answer
+  const [isPlaying, setIsPlaying] = useState(false);      // state to hold current round
+  const [audio, setAudio] = useState(null);               // state to hold audio player
+  const [points, setPoints] = useState(state.score);      // state to hold points
+  const [idx, setIdx] = useState(state.progress);         // state to hold which question we are playing
+  const [resetTrigger, setResetTrigger] = useState(0)     // state to hold timeout reset trigger
 
   // Handle answer submission to the server for verification
   const handleAnswerSubmission = async(idx, selectedOption, elapsedTime) => {

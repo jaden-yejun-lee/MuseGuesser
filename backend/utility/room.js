@@ -103,6 +103,9 @@ class Room {
 
     /* Clean-Up */
     // TODO: cleanup methods
+    cleanup() {
+
+    }
 
     /* Getters */
     get playerCount() {

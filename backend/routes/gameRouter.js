@@ -23,23 +23,38 @@ router.post("/joinRoom", async (req, res) => {
 
         let room = Room.getRoom(code)
         if (room !== undefined) {  // room exists
-            // TODO: Room operation
-            let player = new Player(userId)
+            console.log("Room %s found.", code)
+            console.log(room)
 
-            room.join(player)   // join
+            let player;
+
+            // Player exists?
+            if (room.players.has(userId)) {
+                console.log("Player %s found.", userId)
+                player = room.players.get(userId)
+            } else {
+                console.log("Player %s not found. Creating new instance.", userId)
+                player = new Player(userId)
+                room.join(player)   // join
+            }
 
             // Response
-            const updatedQuestionSets = newRoom.questionSets.map(({ correct, ...rest }) => rest);
+            const updatedQuestionSets = room.questionSets.map(({ correct, ...rest }) => rest);
+            console.log("Question sets generated", room.questionSets)
 
             res.status(200).json({
                 code: code,
                 players: Array.from(room.players),
-                questionSets: updatedQuestionSets   // hide correct answers
+                questionSets: updatedQuestionSets,  // hide correct answers
+                progress: player.progress,          // idx of question answered
+                score: player.score                 // player's current score
             })
         }
         else {
-            res.status(400) // bad request, room doesn't exist
+            console.log("Room %s not found, bad request.", code)
 
+            res.status(400) // bad request, room doesn't exist
+            throw new Error("Room doesn't exist")
             // TODO: we can choose to create room with specific code
         }
 
@@ -87,21 +102,31 @@ router.post("/submitAnswer", async (req, res) => {
         let room = Room.getRoom(code)
         let questionSet = room.questionSets[idx]   // TODO: error handling
 
-        let correct = questionSet.isCorrect(choice)
-        if (correct) {    // correct answer
-            let player = room.players.get(userId)
-            player.addScore(score)
-            console.log("Room %s, player %s add %d score", code, userId, score)
-        } else {                                // wrong answer
-            let player = room.players.get(userId)
-            player.update()
-            console.log("Room %s, player %s wrong answer", code, userId)
-        }
+        let player = room.players.get(userId)
+        if (player.answered(idx)) { // duplicate answer
+            player.pulse()
+            throw new Error("Duplicate submission")
+        } else {
+            let correct = questionSet.isCorrect(choice)
 
-        res.status(200).json({
-            correct: correct,
-            score: score
-        })
+            if (correct) {    // correct answer
+                let player = room.players.get(userId)
+                player.addScore(score)
+                console.log("Room %s, player %s add %d score", code, userId, score)
+            } else {                                // wrong answer
+                let player = room.players.get(userId)
+                player.pulse()
+                console.log("Room %s, player %s wrong answer", code, userId)
+            }
+
+            player.updateProgress(idx)  // player has answered question up to idx
+            console.log("Player %s progress updated to %d", userId, player.progress)
+
+            res.status(200).json({
+                correct: correct,
+                score: score
+            })
+        }
 
     } catch(error) {
         console.error("Error verifying answer:", error);

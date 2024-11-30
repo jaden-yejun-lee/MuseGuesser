@@ -3,6 +3,7 @@ class Player {  // player is specific to room
     constructor(userId) {
         this.id         = userId        // unique identifier
         this.score      = 0             // starts with 0 score
+        this.progress   = 0             // idx of question set the player has reached
         this.lastUpdate = Date.now()    // last update
     }
 
@@ -14,11 +15,22 @@ class Player {  // player is specific to room
     // Add score
     addScore(delta) {
         this.score += delta
-        this.update()
+        this.pulse()
+    }
+
+    // Answer question
+    updateProgress(idx) {
+        this.progress = idx + 1
+        this.pulse()
+    }
+
+    // Update the index of question set the player has reached
+    answered(idx) {
+        return idx < this.progress
     }
 
     // Pulse - update lastUpdate
-    update() {
+    pulse() {
         this.lastUpdate = Date.now()
     }
 }
