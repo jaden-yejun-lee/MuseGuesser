@@ -1,20 +1,24 @@
-import { SpotifyProxy } from "../controller/spotifyProxy";
-import { QuestionSet } from "./questionSet";
+const express = require('express')
+require("dotenv").config()
+
+const DumbProxy = require("../controller/dumbProxy")
+// import { SpotifyProxy } from "../controller/spotifyProxy";
+const { QuestionSet } = require("./questionSet")
 
 // Spotify proxy
-const proxy = SpotifyProxy.getInstance()
+const proxy = DumbProxy.getInstance()
 
 // Generate a question set
-const generateQuestionSet = (genre='pop', choices=4) => {
+const generateQuestionSet = async(genre='pop', choices=4) => {
     let tracks = []
     let withPreview = []
 
     while (withPreview.length == 0) {
-        tracks = proxy.recommendTracks(genre, choices*2)    // increase the hit rate of preview_url
+        tracks = await proxy.recommendTracks(genre, choices*2)    // increase the hit rate of preview_url
         withPreview = tracks.filter((track) => track.preview_url)
     }
 
-    const correctTrack = withPreview
+    const correctTrack = withPreview[0]
     const incorrectTracks = tracks
                 .filter((track) => track !== correctTrack)
                 .sort(() => 0.5 - Math.random())
@@ -31,15 +35,23 @@ const generateQuestionSet = (genre='pop', choices=4) => {
 }
 
 // Generate question sets
-const generateQuestionSets = (count, genre='pop', choices=4) => {
+const generateQuestionSets = async(count, genre='pop', choices=4) => {
     let qss = []
 
     for (let i = 0; i < count; i++) {
-        qss.push(generateQuestionSet(genre, choices))
+        qss.push(await generateQuestionSet(genre, choices))
     }
 
     return qss
 }
+
+const test = async() => {
+    let proxy = DumbProxy.getInstance()
+    let qss = await generateQuestionSets(5)
+    console.log(qss)
+}
+
+// test()
 
 module.exports = {
     generateQuestionSet,
