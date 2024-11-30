@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import "./Game.css";
 import { useLocation } from "react-router-dom";
+import QuestionComponent from "./pages/components/QuestionComponent";
 
 const SERVER = process.env.REACT_APP_SERVER;
 
@@ -13,9 +14,13 @@ function Game() {
   const [startTime, setStartTime] = useState(null);       // state to hold time
   const [points, setPoints] = useState(0);                // state to hold points
   const [round, setRound] = useState(1);
+  const [idx, setIdx] = useState(0);                      // state to hold which question we are playing
 
   const location = useLocation()
   const { state } = location || {}
+
+  const userData = localStorage.getItem("userData");
+  const { userId } = JSON.parse(userData);
 
   // play random previewurl
   const playRandomPreview = async () => {
@@ -79,10 +84,52 @@ function Game() {
     }
   };
 
+  // Handle answer submission to the server for verification
+  const handleAnswerSubmission = async(idx, selectedOption, elapsedTime) => {
+    const score = calculateScore(elapsedTime) // local score
+
+    try {
+      const response = await fetch(`${SERVER}/game/submitAnswer`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          code: state.code,       // room code
+          userId: userId,         // userId
+          idx: idx,               // qSet index
+          choice: selectedOption, // index of selected option
+          score: score            // local score
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to submit answer.");
+      }
+
+      const data = await response.json();
+      console.log("Server feedback:", data);
+
+      // Post-verifcation
+      if (data.correct === true) {  // correct answer
+        setPoints(points + data.score)
+        alert("Correct answer!")
+      } else {
+        alert("Wrong answer!")
+      }
+
+      // Increase current index
+      setIdx(idx + 1)
+
+    } catch (error) {
+      console.error("Error submitting answers:", error);
+    }
+  }
+
   // Calculate local score when submitting answer
-  const calculateScore = () => {
+  const calculateScore = (elapsedTime) => {
     // exponential decay calculation for points
-    const timeElapsed = (Date.now() - startTime) / 1000;
+    const timeElapsed = (elapsedTime) / 1000;
     const initialPoints = 100;  // max possible points
     const decayRate = 0.05;     // how quickly points decrease over time
     const earnedPoints = Math.round(initialPoints * Math.exp(-decayRate * timeElapsed));
@@ -94,44 +141,13 @@ function Game() {
     <div className="App">
       <header className="App-header">
         <h1>Room {state.code}</h1>
-        <label>
-          Select Genre:
-          <select
-            value={selectedGenre}
-            onChange={(e) => setSelectedGenre(e.target.value)}
-          >
-            <option value="" disabled>
-              Choose Genre
-            </option>
-            <option value="pop">Pop</option>
-            <option value="rock">Rock</option>
-            <option value="hip-hop">Hip-Hop</option>
-            <option value="jazz">Jazz</option>
-            <option value="electronic">Electronic</option>
-            <option value="classical">Classical</option>
-          </select>
-        </label>
-
-        <button onClick={playRandomPreview}>Get Random Preview</button>
-
-        {isPlaying && answerOptions.length > 0 && (
-          <div>
-            <h3>Guess the Track:</h3>
-            {answerOptions.map((option, index) => (
-              <button
-                key={index}
-                onClick={() =>
-                  handleAnswerSelection(
-                    `${option.name} - ${option.artists[0].name}`
-                  )
-                }
-              >
-                {`${option.name} - ${option.artists[0].name}`}
-              </button>
-            ))}
-          </div>
-        )}
         <h4>Total Points: {points}</h4>
+
+        {idx < state.questionSets.length ? (
+          <QuestionComponent idx={idx} questionSet={state.questionSets[idx]} onSubmit={handleAnswerSubmission}/>
+        ) : (
+          <p>You have completed all the questions! Congratulations!</p>
+        )}
       </header>
     </div>
   );
