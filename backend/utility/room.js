@@ -1,3 +1,5 @@
+const RoomModel = require('../models/roomModel')
+
 const GAME_STATES = {
     OPEN: "open",
     PENDING: "pending",
@@ -18,10 +20,13 @@ class Room {
     constructor() {
         this.id         = ++Room.gameId             // id
         this.state      = GAME_STATES.OPEN          // game is by default open
-        this.players    = new Set()                     // a set of players
+        this.players    = new Set()                 // a set of players
+        this.questionSets = []                      // questionSets
+
+        this.model      = new RoomModel()           // database model
 
         this.code = this.generateRoomCode()
-        Room.codePair[this.code] = this              // generate room code & add to the dictionary
+        Room.codePair[this.code] = this             // generate room code & add to the dictionary
     }
 
     // generate room code, which is a number ROOM_CODE_DIGITS long
@@ -49,9 +54,12 @@ class Room {
         this.#removePlayer(player)
     }
 
-    saveGameRecords() {
-        // TODO: database-related method
-        return null
+    // Save this room (results) to database
+    async saveGameRecords() {
+        const room = await RoomModel.findById(this.id) || new RoomModel()
+        await room.saveGameRecords(this.players)    // save player records
+
+        console.log("Room %s records saved.", this.getRoomCode())
     }
 
     // players
@@ -82,6 +90,15 @@ class Room {
         this.saveGameRecords()
 
         // TODO: it might be beneficial to clean room ID & save records separately, in bulk
+    }
+
+    /* Question Sets */
+    addQuesitonSet(questionSet) {
+        this.questionSets.push(questionSet)
+    }
+
+    addQuestionSets(questionSets) {
+        this.questionSets.push(...questionSets)
     }
 
     /* Clean-Up */
