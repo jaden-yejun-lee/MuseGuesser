@@ -31,7 +31,7 @@ class Room {
         return String(code).padStart(ROOM_CODE_DIGITS, '0')
     }
     getRoomCode() {
-        return String(this.id).padStart(4, '0')
+        return this.code
     }
 
     // get a room
