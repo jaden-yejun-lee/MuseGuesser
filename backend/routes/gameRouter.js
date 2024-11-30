@@ -59,6 +59,36 @@ router.post("/createRoom", async (req, res) => {
     }
 })
 
+router.post("/submitAnswer", async (req, res) => {
+    try {
+        const { code, userId, qSet, choice, score } = req.body // Room code | userId | questionSet index | choice index
+
+        // Verify answer
+        let room = Room.getRoom(code)
+        let questionSet = room.questionSets[qSet]   // TODO: error handling
+
+        let correct = questionSet.isCorrect(choice)
+        if (correct) {    // correct answer
+            let player = room.players[userId]
+            player.addScore(score)
+            console.log("Room %s, player %s add %d score", code, userId, score)
+        } else {                                // wrong answer
+            let player = room.players[userId]
+            player.update()
+            console.log("Room %s, player %s wrong answer", code, userId)
+        }
+
+        res.status(200).json({
+            correct: correct,
+            score: score
+        })
+
+    } catch(error) {
+        console.error("Error verifying answer:", error);
+        res.status(500).json({ error: "Internal server error." });
+    }
+})
+
 router.get("/dailyChallenge", async (req, res) => {
     try {
 
