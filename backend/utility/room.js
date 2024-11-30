@@ -20,7 +20,7 @@ class Room {
     constructor() {
         this.id         = ++Room.gameId             // id
         this.state      = GAME_STATES.OPEN          // game is by default open
-        this.players    = new Set()                 // a set of players
+        this.players    = new Map()                 // a map of players
         this.questionSets = []                      // questionSets
 
         this.model      = new RoomModel()           // database model
@@ -57,18 +57,18 @@ class Room {
     // Save this room (results) to database
     async saveGameRecords() {
         const room = await RoomModel.findById(this.id) || new RoomModel()
-        await room.saveGameRecords(this.players)    // save player records
+        await room.saveGameRecords(this.players.values())    // save player records
 
         console.log("Room %s records saved.", this.getRoomCode())
     }
 
     // players
     #addPlayer(player) {    // Player
-        this.players.add(player)
+        this.players.set(player.id, player)
     }
 
     #removePlayer(player) {
-        this.players.delete(player)
+        this.players.delete(player.id)
     }
 
     /* Switch States */
