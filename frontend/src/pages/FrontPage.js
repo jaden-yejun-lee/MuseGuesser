@@ -28,10 +28,19 @@ const FrontPage = () => {
             <h1>MuseGuesser</h1>
             <div className="links">
                 {!doneDaily && loggedIn ? <Link to="/dailychallenge" className="link-button">Daily Challenge</Link> : null}
-                {!loggedIn ?<>  
+                {!loggedIn ? (
+                <>  
                     <Link to="/signin" className="link-button">Sign In</Link>
                     <Link to="/signup" className="link-button">Sign Up</Link>
-                </>: <Link to="/game" className="link-button">Play Game</Link>}
+                </>
+            ) : (
+                <>
+                    <Link to="/game" className="link-button">Play Game</Link>
+                    {/* Add new buttons here */}
+                    <Link to="/create" className="link-button">Create Session</Link>
+                    <Link to="/join" className="link-button">Join Session</Link>
+                </>
+            )}
             </div>
         </div>
     );
