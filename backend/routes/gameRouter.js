@@ -7,6 +7,7 @@ const User = require("../models/userModel");
 const mongoose = require("mongoose");
 const { Room } = require("../utility/room");
 const { Player } = require("../utility/player");
+const { generateQuestionSets } = require("../utility/gameManager");
 
 function normalizeDate(date) {
     const normalized = new Date(date);
@@ -28,7 +29,11 @@ router.post("/joinRoom", async (req, res) => {
             room.join(player)   // join
 
             // Response
-            res.status(200).json({ code: code, players: Array.from(room.players) })
+            res.status(200).json({
+                code: code,
+                players: Array.from(room.players),
+                questionSets: room.questionSets
+            })
         }
         else {
             res.status(400) // bad request, room doesn't exist
@@ -46,13 +51,24 @@ router.post("/createRoom", async (req, res) => {
     try {
         const { userId } = req.body   // Get room code & player infos
 
+        // Create room
         let newRoom = new Room()
 
         let player = new Player(userId)
         newRoom.join(player)
 
         console.log("Created room with code", newRoom.getRoomCode())
-        res.status(200).json({code: newRoom.getRoomCode()})
+
+        // Generate question sets
+        newRoom.addQuestionSets(await generateQuestionSets(5)) // TODO: more options
+
+        console.log("Question sets generated", newRoom.questionSets)
+
+        // Response
+        res.status(200).json({
+            code: newRoom.getRoomCode(),
+            questionSets: newRoom.questionSets
+        })
     } catch(error) {
         console.error("Error creating room:", error);
         res.status(500).json({ error: "Internal server error." });
