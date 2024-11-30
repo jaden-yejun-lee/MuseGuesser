@@ -8,6 +8,7 @@ const cron = require('node-cron');
 const spotifyRouter = require('./routes/spotifyRouter.js');
 const accountRouter = require('./routes/accountRouter.js');
 const gameRouter = require('./routes/gameRouter.js');
+const matchRouter = require('./routes/matchRouter.js');
 
 const {runCronJob} = require("./utility/dailyChallengeScheduler.js");
 
@@ -21,6 +22,7 @@ const port = process.env.PORT || 5000;
 const server = http.createServer(app);
 
 const db = require('./db.js'); // connect to database
+const matchModel = require('./models/matchModel.js');
 
 // Routes
 // --- Spotify access token
@@ -31,6 +33,8 @@ app.use('/songModel', spotifyRouter);
 app.use('/account', accountRouter);
 // game routes
 app.use('/game', gameRouter);
+// match routes
+app.use('/match', matchRouter);
 
 
 server.listen(port, () => {
@@ -45,4 +49,4 @@ cron.schedule("0 0 * * *", async () => {
 });
 
 // uncomment this and run server to generate new dailychallenge questions
-runCronJob();
+//runCronJob();

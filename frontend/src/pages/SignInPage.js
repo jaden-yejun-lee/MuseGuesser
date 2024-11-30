@@ -3,7 +3,6 @@ import React from 'react';
 
 import './styles/SignInPage.css';
 const SERVER = process.env.REACT_APP_SERVER;
-console.log(SERVER);
 
 
 // TODO:
@@ -58,6 +57,9 @@ const SignInPage = () => {
               localStorage.setItem("userData", JSON.stringify(data));
                 console.log("dataaaa: ", JSON.stringify(data));
               navigate("/");
+            } else {
+              // Unsuccessful login
+              alert(data.error);
             }
           })
           .catch((error) => {

@@ -6,6 +6,7 @@ import FrontPage from './pages/FrontPage.js';
 import Game from './Game.js';
 import DailyChallengePage from './pages/DailyChallenge.js';
 import DailyChallengeLeaderboard from './pages/DailyChallengeLeaderboard.js';
+import MatchHistory from './pages/MatchHistory.js';
 
 
 const PageRouter = () => {
@@ -18,6 +19,7 @@ const PageRouter = () => {
                 <Route path="/signup" element={<><SignUpPage/></>} />
                 <Route path="/dailychallenge" element={<><DailyChallengePage/></>} />
                 <Route path="/dailychallenge/leaderboard" element={<><DailyChallengeLeaderboard/></>} />
+                <Route path="/matchhistory" element={<><MatchHistory/></>} />
             </Routes>
         </Router>
     );
