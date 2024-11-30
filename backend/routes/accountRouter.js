@@ -9,7 +9,6 @@ const userModel = require("../models/userModel.js");
 // routes to handle:
 // sign up
 // sign in
-// sign out
 
 router.post("/login", (req, res) => {
     // check if user exists
