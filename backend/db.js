@@ -17,5 +17,6 @@ mongoose.connect(process.env.MONGODB_URI)
 const Song = require('./models/songModel.js');
 const User = require('./models/userModel.js');
 const DailyChallenge = require('./models/dailyChallenge.js')
+const RoomModel = require('./models/roomModel.js')
 
-module.exports = {User, Song, DailyChallenge};
+module.exports = {User, Song, DailyChallenge, RoomModel};
