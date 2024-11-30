@@ -7,6 +7,8 @@ import Game from './Game.js';
 import DailyChallengePage from './pages/DailyChallenge.js';
 import DailyChallengeLeaderboard from './pages/DailyChallengeLeaderboard.js';
 import MatchHistory from './pages/MatchHistory.js';
+import CreateJoinRoom from './pages/CreateJoinRoom.js';
+import JoinRoom from './pages/JoinRoom.js';
 
 
 const PageRouter = () => {
@@ -14,7 +16,9 @@ const PageRouter = () => {
         <Router>
             <Routes>
                 <Route path="/" element={<><FrontPage/></>} />
-                <Route path="/game" element={<><Game/></>} />
+                <Route path="/room" element={<><CreateJoinRoom/></>} />
+                <Route path="/room/join" element={<><JoinRoom/></>} />
+                <Route path="/room/game" element={<><Game/></>} />
                 <Route path="/signin" element={<><SignInPage/></>} />
                 <Route path="/signup" element={<><SignUpPage/></>} />
                 <Route path="/dailychallenge" element={<><DailyChallengePage/></>} />
