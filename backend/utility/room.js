@@ -56,7 +56,7 @@ class Room {
 
     // Save this room (results) to database
     async saveGameRecords() {
-        const room = await RoomModel.findById(this.id) || new RoomModel()
+        const room = await RoomModel.findById(this.model._id) || new RoomModel()
         await room.saveGameRecords(this.players.values())    // save player records
 
         console.log("Room %s records saved.", this.getRoomCode())
@@ -119,10 +119,14 @@ function test() {
     console.log(Room.codePair)
     room3.close()
 
+    room4.saveGameRecords()
+
     let room5 = new Room()
 
     console.log(Room.codePair)
 }
+
+test()
 
 module.exports = {
     Room
