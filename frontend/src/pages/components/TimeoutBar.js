@@ -5,9 +5,15 @@ import React, { useEffect, useState } from "react";
 //  onTimeout - function to trigger on timeout
 const TimeoutBar = ({ totalTime, onTimeout, resetTrigger }) => {
   const [timeLeft, setTimeLeft] = useState(totalTime);
+  const [disableTransition, setDisableTransition] = useState(false);
 
   useEffect(() => {
     setTimeLeft(totalTime)
+
+    setDisableTransition(true)      // So the timebar resets immediately, css-wise
+    setTimeout(() => {
+      setDisableTransition(false);
+    }, 10);
   }, [resetTrigger, totalTime])
 
   useEffect(() => {
@@ -42,7 +48,7 @@ const TimeoutBar = ({ totalTime, onTimeout, resetTrigger }) => {
           width: `${percentage}%`,
           height: "100%",
           background: getColor(),
-          transition: "width 1s linear, background 1s linear",
+          transition: disableTransition ? "none" : "width 1s linear, background 1s linear",
           borderRadius: "5px",
         }}
       ></div>
