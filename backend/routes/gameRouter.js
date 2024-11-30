@@ -6,6 +6,7 @@ const DailyChallenge = require("../models/dailyChallenge");
 const User = require("../models/userModel");
 const mongoose = require("mongoose");
 const { Room } = require("../utility/room");
+const { Player } = require("../utility/player");
 
 function normalizeDate(date) {
     const normalized = new Date(date);
@@ -22,7 +23,9 @@ router.post("/joinRoom", async (req, res) => {
         let room = Room.getRoom(code)
         if (room !== undefined) {  // room exists
             // TODO: Room operation
-            room.join(userId)   // join
+            let player = new Player(userId)
+
+            room.join(player)   // join
 
             // Response
             res.status(200).json({ code: code, players: Array.from(room.players) })
@@ -44,7 +47,9 @@ router.post("/createRoom", async (req, res) => {
         const { userId } = req.body   // Get room code & player infos
 
         let newRoom = new Room()
-        newRoom.join(userId)
+
+        let player = new Player(userId)
+        newRoom.join(player)
 
         console.log("Created room with code", newRoom.getRoomCode())
         res.status(200).json({code: newRoom.getRoomCode()})
