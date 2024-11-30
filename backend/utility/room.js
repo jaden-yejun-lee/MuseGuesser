@@ -1,4 +1,4 @@
-const RoomModel = require('../models/roomModel')
+const { RoomModel } = require("../db")
 
 const GAME_STATES = {
     OPEN: "open",
@@ -56,9 +56,7 @@ class Room {
 
     // Save this room (results) to database
     async saveGameRecords() {
-        const room = await RoomModel.findById(this.model._id) || new RoomModel()
-        await room.saveGameRecords(this.players.values())    // save player records
-
+        await this.model.saveGameRecords(Array.from(this.players.values()))    // save player records
         console.log("Room %s records saved.", this.getRoomCode())
     }
 
@@ -126,7 +124,7 @@ function test() {
     console.log(Room.codePair)
 }
 
-test()
+// test()
 
 module.exports = {
     Room

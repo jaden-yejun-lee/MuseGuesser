@@ -18,5 +18,6 @@ const Song = require('./models/songModel.js');
 const User = require('./models/userModel.js');
 const DailyChallenge = require('./models/dailyChallenge.js')
 const Match = require('./models/matchModel.js');
+const RoomModel = require('./models/roomModel.js')
 
-module.exports = {User, Song, DailyChallenge, Match};
+module.exports = {User, Song, DailyChallenge, Match, RoomModel};
