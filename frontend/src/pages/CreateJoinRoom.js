@@ -28,7 +28,7 @@ const CreateJoinRoom = () => {
             const data = await response.json();
             console.log("Room created:", data);
 
-            navigate("game", {state: {code: data.code}})
+            navigate("game", {state: {code: data.code, questionSets: data.questionSets}})
           } catch (error) {
             console.error("Error creating room:", error);
           }

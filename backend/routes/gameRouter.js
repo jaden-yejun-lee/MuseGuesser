@@ -29,10 +29,12 @@ router.post("/joinRoom", async (req, res) => {
             room.join(player)   // join
 
             // Response
+            const updatedQuestionSets = newRoom.questionSets.map(({ correct, ...rest }) => rest);
+
             res.status(200).json({
                 code: code,
                 players: Array.from(room.players),
-                questionSets: room.questionSets
+                questionSets: updatedQuestionSets   // hide correct answers
             })
         }
         else {
@@ -65,9 +67,11 @@ router.post("/createRoom", async (req, res) => {
         console.log("Question sets generated", newRoom.questionSets)
 
         // Response
+        const updatedQuestionSets = newRoom.questionSets.map(({ correct, ...rest }) => rest);
+
         res.status(200).json({
             code: newRoom.getRoomCode(),
-            questionSets: newRoom.questionSets
+            questionSets: updatedQuestionSets   // hide correct answers
         })
     } catch(error) {
         console.error("Error creating room:", error);
@@ -77,19 +81,19 @@ router.post("/createRoom", async (req, res) => {
 
 router.post("/submitAnswer", async (req, res) => {
     try {
-        const { code, userId, qSet, choice, score } = req.body // Room code | userId | questionSet index | choice index
+        const { code, userId, idx, choice, score } = req.body // Room code | userId | questionSet index | choice index
 
         // Verify answer
         let room = Room.getRoom(code)
-        let questionSet = room.questionSets[qSet]   // TODO: error handling
+        let questionSet = room.questionSets[idx]   // TODO: error handling
 
         let correct = questionSet.isCorrect(choice)
         if (correct) {    // correct answer
-            let player = room.players[userId]
+            let player = room.players.get(userId)
             player.addScore(score)
             console.log("Room %s, player %s add %d score", code, userId, score)
         } else {                                // wrong answer
-            let player = room.players[userId]
+            let player = room.players.get(userId)
             player.update()
             console.log("Room %s, player %s wrong answer", code, userId)
         }
