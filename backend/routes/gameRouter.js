@@ -13,10 +13,25 @@ function normalizeDate(date) {
     return normalized;
 }
 
-router.get("/room", async (req, res) => {
+router.post("/joinRoom", async (req, res) => {
     try {
+        const { code, userId } = req.body   // Get room code & player infos
 
+        console.log("User %s requests to join room %s", userId, code)    // complete log
 
+        let room = Room.getRoom(code)
+        if (room !== undefined) {  // room exists
+            // TODO: Room operation
+            room.join(userId)   // join
+
+            // Response
+            res.status(200).json({ code: code, players: room.players })
+        }
+        else {
+            res.status(400) // bad request, room doesn't exist
+
+            // TODO: we can choose to create room with specific code
+        }
 
     } catch (error) {
         console.log("Error fetch room status:", error);
