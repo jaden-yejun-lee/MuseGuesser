@@ -4,6 +4,9 @@ import { Link, useNavigate } from "react-router-dom";
 const SERVER = process.env.REACT_APP_SERVER;
 
 const CreateJoinRoom = () => {
+    const userData = localStorage.getItem("userData");
+    const { userId } = JSON.parse(userData);
+
     const navigate = useNavigate()
 
     const createRoom = async (e) => {
@@ -13,6 +16,9 @@ const CreateJoinRoom = () => {
               headers: {
                 "Content-Type": "application/json",
               },
+              body: JSON.stringify({
+                userId: userId
+              })
             });
 
             if (!response.ok) {

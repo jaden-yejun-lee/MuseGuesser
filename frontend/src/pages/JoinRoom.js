@@ -30,7 +30,7 @@ const JoinRoom = () => {
       }
 
       const data = await response.json();
-      console.log("Joined room:", data.code);
+      console.log("Joined room:", data);
 
       navigate("/room/game", {state: {code: data.code}})
     } catch (error) {
