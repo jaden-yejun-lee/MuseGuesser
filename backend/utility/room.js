@@ -1,10 +1,23 @@
 const { RoomModel } = require("../db")
+const { Player } = require("./player")
 
 const GAME_STATES = {
     OPEN: "open",
     PENDING: "pending",
     STARTED: "started",
     CLOSED: "closed"
+}
+
+class ExpirationHandler {
+    static INSTANT_EXPIRATION = 5 * 1000    // 5 seconds, note that this causes error since it is shorter than a game session
+    static QUICK_EXPIRATION = 5 * 60 * 1000 // 5 minutes
+    static MID_EXPIRATION = 10 * 60 * 1000  // 10 minutes
+    static LONG_EXPIRATION = 15 * 60 * 1000 // 15 minutes
+
+    static getExpiration() {
+        // TODO: conditional
+        return ExpirationHandler.MID_EXPIRATION
+    }
 }
 
 const ROOM_CODE_DIGITS = 4  // room code is 4-digits long
@@ -16,6 +29,8 @@ class Room {
     static gameId = 0
 
     static codePair = {}
+
+    static cleanupTimeoutId = null  // storing timeout for periodic cleanup
 
     constructor() {
         this.id         = ++Room.gameId             // id
@@ -104,7 +119,39 @@ class Room {
     /* Clean-Up */
     // TODO: cleanup methods
     cleanup() {
+        // Update active/inactive
+        for (let [id, player] of this.players) {
+            if ((Date.now() - player.lastUpdate) > ExpirationHandler.getExpiration()) { // expires
+                console.log("Player %s set to inactive.", id)
+                player.state = Player.STATE.INACTIVE
+            }
+        }
 
+        // Scan for inactivity
+        for (let [id, player] of this.players) {
+            if (player.state == Player.STATE.ACTIVE) return;
+        }
+        console.log("Room %s now closed due to inactivity.", this.code)
+
+        // Close the room since all players are inactive for a while
+        this.close()
+    }
+
+    // Static cleanup
+    //  -- period: in seconds
+    static periodicCleanup(period=60) {
+        // if (Room.cleanupTimeoutId !== null) {
+        //     return  // period cleanup already in progress
+        // }
+
+        Room.cleanupTimeoutId = setTimeout(() => {
+            console.log("Room: periodic cleanup (%ds) begins", period)
+            for (let [code, room] of Object.entries(Room.codePair)) {
+                room.cleanup()
+            }
+            console.log("Room: periodic cleanup (%ds) ends", period)
+            Room.periodicCleanup(period)
+        }, period * 1000)
     }
 
     /* Getters */

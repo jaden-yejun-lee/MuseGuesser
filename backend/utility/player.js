@@ -1,10 +1,16 @@
 // Player model used in Rooms
 class Player {  // player is specific to room
+    static STATE = {
+        ACTIVE: 1,
+        INACTIVE: 0
+    }
+
     constructor(userId) {
-        this.id         = userId        // unique identifier
-        this.score      = 0             // starts with 0 score
-        this.progress   = 0             // idx of question set the player has reached
-        this.lastUpdate = Date.now()    // last update
+        this.id         = userId                    // unique identifier
+        this.score      = 0                         // starts with 0 score
+        this.progress   = 0                         // idx of question set the player has reached
+        this.state      = Player.STATE.ACTIVE       // 0 - inactive, 1 - active
+        this.lastUpdate = Date.now()                // last update
     }
 
     // Is the player expired?

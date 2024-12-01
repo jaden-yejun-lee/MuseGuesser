@@ -23,6 +23,7 @@ const server = http.createServer(app);
 
 const db = require('./db.js'); // connect to database
 const matchModel = require('./models/matchModel.js');
+const { Room } = require('./utility/room.js');
 
 // Routes
 // --- Spotify access token
@@ -47,6 +48,9 @@ cron.schedule("0 0 * * *", async () => {
 }, {
   timezone: "America/Los_Angeles",
 });
+
+// Room Game Cleanup
+Room.periodicCleanup()  // by default 60 seconds
 
 // uncomment this and run server to generate new dailychallenge questions
 //runCronJob();
