@@ -36,3 +36,15 @@
     transform: rotate(360deg);
   }
 }
+
+.exit-button {
+  background-color: #ff4d4d;
+  color: white;
+  border: none;
+  transition: background-color 0.3s ease;
+  font-size: large;
+}
+
+.exit-button:hover {
+  background-color: #ff6666;
+}
