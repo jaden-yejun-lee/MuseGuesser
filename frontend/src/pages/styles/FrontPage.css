@@ -1,42 +1,73 @@
+/* Front Page Container */
 .front-page {
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    height: 50vh;
-    width: 50vw;
-    background-color: #2a9709;
-    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
-    padding: 20px;
-    border-radius: 10px;
-    max-width: 600px;
-    margin: 10vw auto;
-}
-
-.front-page h1 {
-    font-size: 2.5rem;
-    color: #000000;
-    margin-bottom: 20px;
-}
-
-.links {
-    display: flex;
-    flex-direction: column;
-    gap: 15px;
-}
-
-.link-button {
-    display: inline-block;
-    padding: 10px 20px;
-    font-size: 1.2rem;
-    color: #ffffff;
-    background-color: #000000;
-    text-decoration: none;
-    border-radius: 5px;
-    transition: background-color 0.3s ease;
+    height: 60vh;
+    width: 80vw;
+    background: linear-gradient(135deg, #2a9709, #4caf50);
+    box-shadow: 0 6px 12px rgba(0, 0, 0, 0.15);
+    padding: 30px;
+    border-radius: 12px;
+    max-width: 700px;
+    margin: 10vh auto;
     text-align: center;
 }
 
+/* Title Styling */
+.front-page h1 {
+    font-size: 3rem;
+    font-weight: 700;
+    color: #ffffff;
+    margin-bottom: 30px;
+    text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+/* Link Container */
+.links {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    width: 100%;
+    max-width: 400px;
+}
+
+/* Button Styling */
+.link-button {
+    display: inline-block;
+    padding: 12px 25px;
+    font-size: 1.3rem;
+    font-weight: 600;
+    color: #ffffff;
+    background: #000000;
+    text-decoration: none;
+    border-radius: 8px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2);
+    transition: transform 0.2s ease, background-color 0.3s ease;
+    text-align: center;
+}
+
+/* Button Hover Effect */
 .link-button:hover {
-    background-color: #0056b3;
+    background-color: #1a73e8;
+    transform: translateY(-3px);
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+    .front-page {
+        width: 90vw;
+        height: auto;
+        padding: 20px;
+    }
+
+    .front-page h1 {
+        font-size: 2.5rem;
+    }
+
+    .link-button {
+        font-size: 1.1rem;
+        padding: 10px 20px;
+    }
 }

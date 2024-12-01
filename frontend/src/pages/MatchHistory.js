@@ -1,5 +1,6 @@
-import React, {useState, useEffect} from 'react';
+import React, { useState, useEffect } from 'react';
 import './styles/MatchHistory.css';
+
 
 const SERVER = process.env.REACT_APP_SERVER;
 
@@ -17,52 +18,61 @@ const MatchHistory = () => {
         }
         const { userId } = JSON.parse(userData);
 
-        fetch(`${SERVER}/match/matchHistory`, 
-            {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ userId })
-            }).then((response) => {
-                if (!response.ok) {
-                    throw new Error("Failed to fetch match history.");
-                }
-                response.json().then((data) => {
-                    setMatches(data);
-                    setLoading(false);
-                });
-                
-            }).catch((err) => {
-                setError(err.message);
+        fetch(`${SERVER}/match/matchHistory`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ userId })
+        }).then((response) => {
+            if (!response.ok) {
+                throw new Error("Failed to fetch match history.");
+            }
+            response.json().then((data) => {
+                setMatches(data);
                 setLoading(false);
             });
+        }).catch((err) => {
+            setError(err.message);
+            setLoading(false);
+        });
     }, []);
 
-
-    return(<>
-                <h1>Match History</h1>
-                {loading ? <p>Loading...</p> : <div className='match-history'>
-                    {Array.isArray(matches) && matches.length === 0 ? <p>No matches found</p> : 
-                     matches.map((match, index) => {
-                        return(<div key={index} className='match'>
-                                 <p>{match.gameType}</p>
-                                 <p>{match.date}</p>
-                                 {match.players
-                                 .sort((a, b) => b.score - a.score)
-                                 .map((player, index) => {
-                                    return(<div key={index} className='player'>
-                                             <p>{player.username}</p>
-                                             <p>{player.score}</p>
-                                           </div>)
-                                 })}
-                               </div>)
-                     })
-                    }
-                </div>}
-                {error ? <p>{error}</p> : null}
-                
-           </>)
+    return (
+        <div className="front-page">
+            <h1>Match History</h1>
+            <div className="content-container">
+                {loading ? (
+                    <div className="status-message loading">Loading...</div>
+                ) : error ? (
+                    <div className="status-message error">{error}</div>
+                ) : Array.isArray(matches) && matches.length === 0 ? (
+                    <div className="status-message empty">No matches found</div>
+                ) : (
+                    <div className="matches-container">
+                        {matches.map((match, index) => (
+                            <div key={index} className="match-card">
+                                <div className="match-header">
+                                    <span className="game-type">{match.gameType}</span>
+                                    <span className="match-date">{match.date}</span>
+                                </div>
+                                <div className="players-list">
+                                    {match.players
+                                        .sort((a, b) => b.score - a.score)
+                                        .map((player, playerIndex) => (
+                                            <div key={playerIndex} className="player-row">
+                                                <span className="player-name">{player.username}</span>
+                                                <span className="player-score">{player.score}</span>
+                                            </div>
+                                        ))}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </div>
+        </div>
+    );
 }
 
 export default MatchHistory;
