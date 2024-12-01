@@ -1,0 +1,104 @@
+/* Container Styling */
+body {
+    margin: 0;
+    padding: 0;
+    height: 100vh;
+    background: linear-gradient(135deg, #ffffff, #f6f6f6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: Arial, sans-serif;
+}
+
+.create-join-room {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 80vh;
+    width: 80vw;
+    max-width: 600px;
+    margin: 0 auto;
+    background: linear-gradient(135deg, #2a9709, #4caf50);
+    box-shadow: 0 6px 12px rgba(0, 0, 0, 0.15);
+    border-radius: 12px;
+    padding: 30px;
+    text-align: center;
+}
+
+/* Title Styling */
+.create-join-room h1 {
+    font-size: 3rem;
+    color: #ffffff;
+    margin-bottom: 40px;
+    font-weight: 700;
+    text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+/* Buttons Container */
+.links {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    width: 100%;
+    max-width: 400px;
+}
+
+/* Common Button Styles */
+.links button,
+.link-button {
+    width: 100%;
+    font-size: 1.3rem;
+    font-weight: 600;
+    padding: 15px;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2);
+    text-align: center;
+    text-decoration: none;
+    width: 430px;
+}
+
+/* Create Room Button */
+.links button {
+    background-color: #ffffff;
+    color: #2a9709;
+    border: none;
+}
+
+.links button:hover {
+    background-color: #4caf50;
+    color: #ffffff;
+    transform: translateY(-3px);
+}
+
+/* Join Room Link Button */
+.link-button {
+    display: block;
+    color: #ffffff;
+    background: #000000;
+}
+
+.link-button:hover {
+    background-color: #1a73e8;
+    transform: translateY(-3px);
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+    .create-join-room {
+        width: 90vw;
+        padding: 20px;
+    }
+
+    .create-join-room h1 {
+        font-size: 2.5rem;
+    }
+
+    .links button,
+    .link-button {
+        font-size: 1.1rem;
+        padding: 12px;
+    }
+}

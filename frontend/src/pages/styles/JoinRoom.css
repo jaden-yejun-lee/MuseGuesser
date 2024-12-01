@@ -1,0 +1,49 @@
+.content-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 100%;
+    max-width: 400px;
+  }
+
+  .input-container {
+    width: 100%;
+    margin-bottom: 20px;
+  }
+
+  .button-container {
+    width: 100%;
+  }
+
+  .room-input {
+    width: 370px;
+    padding: 12px;
+    font-size: 1.3rem;
+    text-align: center;
+    border: 2px solid #ffffff;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.9);
+    color: #000000;
+    outline: none;
+    transition: all 0.3s ease;
+  }
+
+  .room-input:focus {
+    border-color: #1a73e8;
+    box-shadow: 0 0 0 2px rgba(26, 115, 232, 0.2);
+  }
+
+  .room-input::placeholder {
+    color: #666666;
+  }
+
+  .link-button {
+    width: 100%;
+  }
+
+  @media (max-width: 768px) {
+    .room-input {
+      font-size: 1.1rem;
+      padding: 10px;
+    }
+  }
