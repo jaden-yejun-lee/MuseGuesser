@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import "./Game.css";
-import { useLocation } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import QuestionComponent from "./pages/components/QuestionComponent";
 import TimeoutBar from "./pages/components/TimeoutBar";
 
@@ -12,6 +12,8 @@ function Game() {
 
   const userData = localStorage.getItem("userData");
   const { userId } = JSON.parse(userData);
+
+  const navigate = useNavigate()
 
   const [selectedGenre, setSelectedGenre] = useState(""); // state to hold genre
   const [answerOptions, setAnswerOptions] = useState([]); // state to hold 4 answer options
@@ -88,6 +90,11 @@ function Game() {
     setResetTrigger(resetTrigger + 1)
   }
 
+  // Exit button
+  const handleExit = () => {
+    navigate("/") // navigate back to the frontpage
+  }
+
   return (
     <div className="App">
       <header className="App-header">
@@ -100,7 +107,10 @@ function Game() {
             <QuestionComponent idx={idx} questionSet={state.questionSets[idx]} onSubmit={handleAnswerSubmission}/>
           </>
         ) : (
-          <p>You have completed all the questions! Congratulations!</p>
+          <>
+            <p>You have completed all the questions! Congratulations!</p>
+            <button className="exit-button" onClick={handleExit}>Exit</button>
+          </>
         )}
       </header>
     </div>
