@@ -93,6 +93,33 @@
   border-radius: 10px;
 }
 
+.navigation-buttons {
+  display: flex;
+  justify-content: center;
+  margin-top: 20px;
+  margin-bottom: 40px;
+}
+
+.exit-button {
+  padding: 10px 20px;
+  font-size: 1.2rem;
+  font-weight: bold;
+  background-color: #ffffff;
+  color: #2a9709;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2);
+  align-self: center;
+}
+
+.exit-button:hover {
+  background-color: #4caf50;
+  color: #ffffff;
+  transform: translateY(-3px);
+}
+
 /* Responsive Design */
 @media (max-width: 600px) {
   .leaderboard-container {
