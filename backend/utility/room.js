@@ -10,13 +10,14 @@ const GAME_STATES = {
 
 class ExpirationHandler {
     static INSTANT_EXPIRATION = 5 * 1000    // 5 seconds, note that this causes error since it is shorter than a game session
+    static SHORT_EXPIRATION = 35 * 1000     // 35 seconds
     static QUICK_EXPIRATION = 5 * 60 * 1000 // 5 minutes
     static MID_EXPIRATION = 10 * 60 * 1000  // 10 minutes
     static LONG_EXPIRATION = 15 * 60 * 1000 // 15 minutes
 
     static getExpiration() {
         // TODO: conditional
-        return ExpirationHandler.MID_EXPIRATION
+        return ExpirationHandler.SHORT_EXPIRATION
     }
 }
 
