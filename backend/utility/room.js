@@ -1,4 +1,4 @@
-const { RoomModel } = require("../db")
+const { Match } = require("../db")
 const { Player } = require("./player")
 
 const GAME_STATES = {
@@ -38,7 +38,7 @@ class Room {
         this.players    = new Map()                 // a map of players
         this.questionSets = []                      // questionSets
 
-        this.model      = new RoomModel()           // database model
+        this.model      = new Match()           // database model
 
         this.code = this.generateRoomCode()
         Room.codePair[this.code] = this             // generate room code & add to the dictionary

@@ -15,5 +15,18 @@ const matchSchema = new mongoose.Schema({
 
 });
 
+// Save game records
+matchSchema.methods.saveGameRecords = async function (players) {
+    const playerRecords = players.map((player) => ({
+        username: player.id,
+        score: player.score
+    }));
+
+    this.players = playerRecords;
+    this.date = Date.now()
+    this.gameType = "Room"
+
+    return await this.save();
+}
 
 module.exports = mongoose.model("Match", matchSchema);
