@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-
+import "./styles/DailyChallenge.css"
 import { MdOutlineReplay } from "react-icons/md";
 
 const SERVER = process.env.REACT_APP_SERVER;
@@ -21,21 +21,21 @@ const DailyChallengePage = () => {
 
   const userData = localStorage.getItem("userData");
   const { userId } = JSON.parse(userData);
-  const { dailyScore } = JSON.parse(userData)
+  const { dailyScore } = JSON.parse(userData);
 
-  // Fetch daily challenge on component mount
+  // Fetch daily challenge from start of page
   useEffect(() => {
     const fetchDailyChallenge = async () => {
-        if (!userId) {
-          setError("Please log in to play the daily challenge");
-          navigate("/login"); // Redirect to login if no userId found
-          return;
-        }
+      if (!userId) {
+        setError("Please log in to play the daily challenge");
+        navigate("/login");
+        return;
+      }
 
-        if (dailyScore !== -1) {
-          alert("You have already played the daily challenge. Wait another day.");
-          navigate("/game");
-        }
+      if (dailyScore !== -1) {
+        alert("You have already played the daily challenge. Wait another day.");
+        navigate("/game");
+      }
 
       try {
         const response = await fetch(`${SERVER}/game/dailyChallenge`);
@@ -45,10 +45,9 @@ const DailyChallengePage = () => {
         const data = await response.json();
         setDailyChallenge(data);
 
-        // Start the "Get Ready" timer
         setTimeout(() => {
           setGameState("playing");
-        }, 5000); // 5-second delay for the "Get Ready" screen
+        }, 5000);
       } catch (err) {
         setError(err.message);
       } finally {
@@ -82,26 +81,25 @@ const DailyChallengePage = () => {
     setMessage(""); // Clear the message when starting a new question
   };
 
+  // Volume change functionality
   const handleVolumeChange = (e) => {
-    const newVolume = e.target.value
-    setVolume(newVolume)
-
+    const newVolume = e.target.value;
+    setVolume(newVolume);
     if (audio) {
-      audio.volume = newVolume / 100
+      audio.volume = newVolume / 100;
     }
   };
 
   // Replay functionality
   const handleReplay = () => {
-    if (audio) {  // If we already have a song
+    if (audio) {
       audio.currentTime = 0;
-      audio.play();   // replay the song, not adjusting start time
-                      // TODO: we can incur a point penalty here
+      audio.play(); // replay the song, not adjusting start time
     }
   };
 
+  // Push score to database
   const saveScoreToDatabase = async (finalScore) => {
-    console.log('userId from DailyChallenge(FE): ', userId);
     try {
       const response = await fetch(`${SERVER}/game/updateDailyScore`, {
         method: "POST",
@@ -125,6 +123,7 @@ const DailyChallengePage = () => {
     }
   };
 
+  // Handle answer submit
   const handleAnswerSelection = (selectedAnswer) => {
     if (!isPlaying) return;
 
@@ -138,12 +137,13 @@ const DailyChallengePage = () => {
     const currentQuestion = dailyChallenge.questions[currentRound];
     const correctAnswer = currentQuestion.correctTrack.name;
 
-    let earnedPoints = 0; // Points for this round
+    let earnedPoints = 0;
 
     if (selectedAnswer === correctAnswer) {
       const timeElapsed = (Date.now() - startTime) / 1000; // Time in seconds
       const initialPoints = 100; // Max points
       const decayRate = 0.05; // Decay rate for points
+      // Exponential decay logic
       earnedPoints = Math.round(
         initialPoints * Math.exp(-decayRate * timeElapsed)
       );
@@ -155,17 +155,16 @@ const DailyChallengePage = () => {
 
     // Proceed to the next round or finish the game
     if (currentRound + 1 < dailyChallenge.questions.length) {
-      setTimeout(() => setCurrentRound((prevRound) => prevRound + 1), 2000); // 5-second delay
+      setTimeout(() => setCurrentRound((prevRound) => prevRound + 1), 5000);
     } else {
       setTimeout(async () => {
-        // Calculate the final score directly
-        const finalScore = points + earnedPoints; // Add the last round's points
+        const finalScore = points + earnedPoints;
         setGameState("finished");
         setMessage(`Game over! Your total score is ${finalScore}.`);
 
         // Save the final score to the database
         await saveScoreToDatabase(finalScore);
-      }, 2000); // 5-second delay
+      }, 5000);
     }
   };
 
@@ -183,42 +182,38 @@ const DailyChallengePage = () => {
   const currentQuestion = dailyChallenge.questions[currentRound];
 
   return (
-    <div className="App">
+    <div className="daily-challenge-container">
       <h1>Daily Challenge</h1>
 
-      {/* Ready Screen */}
       {gameState === "ready" && (
         <div>
           <h2>Get Ready to Play the Daily Challenge!</h2>
         </div>
       )}
 
-      {/* Game Playing */}
       {gameState === "playing" && (
         <div>
-          <div style={{display: "flex", justifyContent: "center", alignItems: "center"}}> {/* TODO: formatting */}
+          <div className="question-section">
             <h3>Question {currentRound + 1}</h3>
-            <button onClick={handleReplay}>
-              <MdOutlineReplay size={24} />
+            <button className="replay-button" onClick={handleReplay}>
+              <MdOutlineReplay size={24} /> Replay
             </button>
           </div>
-          {isPlaying && (
-            <div>
-              {currentQuestion.options.map((option, index) => (
-                <button
-                  key={index}
-                  onClick={() => handleAnswerSelection(option.name)}
-                >
-                  {`${option.name} - ${option.artist}`}
-                </button>
-              ))}
-            </div>
-          )}
+          <div className="options-container">
+            {currentQuestion.options.map((option, index) => (
+              <button
+                key={index}
+                onClick={() => handleAnswerSelection(option.name)}
+              >
+                {`${option.name} - ${option.artist}`}
+              </button>
+            ))}
+          </div>
           <h4>Total Points: {points}</h4>
           {message && <div className="feedback">{message}</div>}
 
-          <div class="volume-control">
-            <label for="volume-slider">Volume:</label>
+          <div className="volume-control">
+            <label htmlFor="volume-slider">Volume:</label>
             <input
               id="volume-slider"
               type="range"
@@ -232,7 +227,6 @@ const DailyChallengePage = () => {
         </div>
       )}
 
-      {/* Game Over */}
       {gameState === "finished" && (
         <div>
           <h2>Game Over!</h2>
