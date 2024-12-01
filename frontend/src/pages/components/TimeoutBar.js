@@ -3,8 +3,18 @@ import React, { useEffect, useState } from "react";
 // A timeout bar used to show the time left to answer a question
 //  totalTime - in seconds
 //  onTimeout - function to trigger on timeout
-const TimeoutBar = ({ totalTime, onTimeout }) => {
+const TimeoutBar = ({ totalTime, onTimeout, resetTrigger }) => {
   const [timeLeft, setTimeLeft] = useState(totalTime);
+  const [disableTransition, setDisableTransition] = useState(false);
+
+  useEffect(() => {
+    setTimeLeft(totalTime)
+
+    setDisableTransition(true)      // So the timebar resets immediately, css-wise
+    setTimeout(() => {
+      setDisableTransition(false);
+    }, 10);
+  }, [resetTrigger, totalTime])
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -38,7 +48,7 @@ const TimeoutBar = ({ totalTime, onTimeout }) => {
           width: `${percentage}%`,
           height: "100%",
           background: getColor(),
-          transition: "width 1s linear, background 1s linear",
+          transition: disableTransition ? "none" : "width 1s linear, background 1s linear",
           borderRadius: "5px",
         }}
       ></div>
