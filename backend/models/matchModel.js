@@ -1,4 +1,5 @@
 const mongoose = require("mongoose");
+const userModel = require("./userModel");
 
 // Match Schema
 const matchSchema = new mongoose.Schema({
@@ -17,10 +18,15 @@ const matchSchema = new mongoose.Schema({
 
 // Save game records
 matchSchema.methods.saveGameRecords = async function (players) {
-    const playerRecords = players.map((player) => ({
-        username: player.id,
-        score: player.score
-    }));
+    const playerRecords = await Promise.all(
+        players.map(async (player) => {
+            const user = await userModel.findById(player.id);
+            return {
+                username: user.username,
+                score: player.score
+            }
+        })
+    )
 
     this.players = playerRecords;
     this.date = Date.now()
