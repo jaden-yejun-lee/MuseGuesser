@@ -232,6 +232,13 @@ const DailyChallengePage = () => {
           <h2>Game Over!</h2>
           <p>{message}</p>
           <h4>Your Total Points: {points}</h4>
+
+          <button
+            className="leaderboard-button"
+            onClick={() => navigate("/dailychallenge/leaderboard")}
+          >
+            View Leaderboard
+          </button>
         </div>
       )}
     </div>

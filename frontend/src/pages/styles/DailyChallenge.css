@@ -114,6 +114,26 @@ body {
     text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.2);
 }
 
+.leaderboard-button {
+    margin-top: 20px;
+    padding: 10px 20px;
+    font-size: 1.2rem;
+    font-weight: bold;
+    background-color: #ffffff;
+    color: #2a9709;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2);
+}
+
+.leaderboard-button:hover {
+    background-color: #4caf50;
+    color: #ffffff;
+    transform: translateY(-3px);
+}
+
 @media (max-width: 768px) {
     .daily-challenge-container {
         width: 95vw;
