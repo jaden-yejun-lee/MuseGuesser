@@ -180,7 +180,7 @@ router.post("/updateDailyScore", async(req, res) => {
 router.get("/dailyChallengeScores", async (req, res) => {
     try {
 
-        const users = await User.find();
+        const users = await User.find({ dailyScore: { $ne: -1 } });
         if (!users) {
             return res.status(404);
         }
