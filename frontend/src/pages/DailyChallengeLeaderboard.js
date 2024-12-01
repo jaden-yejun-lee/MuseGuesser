@@ -1,9 +1,12 @@
 import React, { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import "./styles/Leaderboard.css"; // Import the CSS file
 
 const SERVER = process.env.REACT_APP_SERVER;
 
 const Leaderboard = () => {
+  const navigate = useNavigate();
+
   const [leaderboardData, setLeaderboardData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -51,11 +54,17 @@ const Leaderboard = () => {
           </thead>
           <tbody>
             {leaderboardData.map((player, index) => (
-              <tr 
-                key={player.id} 
-                className={`leaderboard-row ${index === 0 ? 'first-place' : 
-                             index === 1 ? 'second-place' : 
-                             index === 2 ? 'third-place' : ''}`}
+              <tr
+                key={player.id}
+                className={`leaderboard-row ${
+                  index === 0
+                    ? "first-place"
+                    : index === 1
+                    ? "second-place"
+                    : index === 2
+                    ? "third-place"
+                    : ""
+                }`}
               >
                 <td>{index + 1}</td>
                 <td>{player.username}</td>
@@ -64,6 +73,11 @@ const Leaderboard = () => {
             ))}
           </tbody>
         </table>
+      </div>
+      <div className="navigation-buttons">
+        <button className="exit-button" onClick={() => navigate("/")}>
+          Exit Leaderboard
+        </button>
       </div>
     </div>
   );
