@@ -130,6 +130,49 @@ const DailyChallengePage = () => {
     } catch (error) {
       console.error("Error saving score:", error);
     }
+    try{
+
+      const getusername_response = await fetch(`${SERVER}/account/getUsername`,{
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          userId: userId,
+        }),
+      });
+      if (!getusername_response.ok) {
+        throw new Error("Failed to get username.");
+      }
+
+      const username_data = await getusername_response.json();
+      const username = username_data.username;
+      console.log("Username acquired:", username);
+
+      const match_response = await fetch(`${SERVER}/match/uploadMatch`,{
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          gameType: "Daily Challenge",
+          date: new Date(),
+          players: [
+            {
+              username: username,
+              score: finalScore,
+            },
+          ],
+      })
+    });
+    if (!match_response.ok) {
+      throw new Error("Failed to save match to database.");
+    }
+    console.log("Match saved successfully");
+
+    } catch (error) {
+      console.error("Error saving match:", error);
+    }
   };
 
   // Handle answer submit
