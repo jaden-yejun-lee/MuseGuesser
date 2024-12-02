@@ -86,4 +86,16 @@ router.post("/signup", (req, res) => {
     });
 });
 
+router.post("/getUsername", (req, res) => {
+    userModel.findById(req.body.userId).then(user => {
+        if(user){
+            res.status(200).json({username: user.username});
+        } else {
+            res.status(404).json({error: "User not found"});
+        }
+    }).catch(err => {
+        res.status(500).json({error: "Internal server error: " + err});
+    });
+});
+
 module.exports = router;
