@@ -134,6 +134,22 @@ router.post("/submitAnswer", async (req, res) => {
     }
 })
 
+router.post("/saveExit", async (req, res) => {
+    try {
+        console.log("Receives on exit save request.")
+
+        const { code } = req.body
+
+        let room = Room.getRoom(code)
+        await room.saveGameRecords()  // save records
+
+        res.status(200)
+    } catch(error) {
+        console.error("Error verifying answer:", error);
+        res.status(500).json({ error: "Internal server error." });
+    }
+})
+
 router.get("/dailyChallenge", async (req, res) => {
     try {
 
