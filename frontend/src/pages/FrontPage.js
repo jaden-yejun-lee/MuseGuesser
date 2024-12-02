@@ -35,7 +35,7 @@ const FrontPage = () => {
         <div className="front-page">
             <h1>MuseGuesser</h1>
             <div className="links">
-                {!doneDaily && loggedIn ? <Link to="/dailychallenge" className="link-button">Daily Challenge</Link> : null}
+                {loggedIn ? <Link to="/dailychallenge" className="link-button">Daily Challenge</Link> : null}
                 {!loggedIn ?<>
                     <Link to="/signin" className="link-button">Sign In</Link>
                     <Link to="/signup" className="link-button">Sign Up</Link>
