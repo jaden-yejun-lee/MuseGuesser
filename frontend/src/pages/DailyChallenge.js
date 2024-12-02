@@ -76,6 +76,7 @@ const DailyChallengePage = () => {
 
     const currentQuestion = dailyChallenge.questions[currentRound];
     const newAudio = new Audio(currentQuestion.correctTrack.preview_url);
+    newAudio.volume = volume/100;
     newAudio.play();
     setAudio(newAudio);
     setIsPlaying(true);
