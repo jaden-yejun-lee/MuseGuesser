@@ -140,6 +140,26 @@ Match History Container
     font-weight: 600;
 }
 
+.back-button {
+    margin-top: 20px;
+    padding: 10px 20px;
+    font-size: 1.2rem;
+    font-weight: bold;
+    background-color: #ffffff;
+    color: #2a9709;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2);
+}
+
+.back-button:hover {
+    background-color: #4caf50;
+    color: #ffffff;
+    transform: translateY(-3px);
+}
+
 /* Responsive Design */
 @media (max-width: 768px) {
     .front-page {
