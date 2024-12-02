@@ -71,3 +71,14 @@
         padding: 10px 20px;
     }
 }
+
+.logout-button {
+    background-color: #ff4d4d;
+    color: white;
+    border: none;
+    transition: background-color 0.3s ease;
+}
+
+.logout-button:hover {
+    background-color: #ff6666;
+}

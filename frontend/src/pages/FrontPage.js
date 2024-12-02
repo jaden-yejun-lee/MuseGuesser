@@ -1,11 +1,12 @@
 import React, {useState, useEffect} from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import './styles/FrontPage.css';
 
 const FrontPage = () => {
-
+    const navigate = useNavigate();
     const [loggedIn, setLoggedIn] = useState(false);
     const [doneDaily, setDoneDaily] = useState(false);
+
     useEffect(() => {
         const userData = localStorage.getItem("userData");
         if (userData) {
@@ -16,12 +17,19 @@ const FrontPage = () => {
             if (dailyScore !== -1) {
                 setDoneDaily(true);
             }
-
         } else {
             setLoggedIn(false);
         }
     }, []);
 
+    const handleLogout = () => {
+        // Remove user data from local storage
+        localStorage.removeItem("userData");
+        // Update login state
+        setLoggedIn(false);
+        // Redirect to front page
+        navigate('/');
+    };
 
     return (
         <div className="front-page">
@@ -35,6 +43,7 @@ const FrontPage = () => {
                 <>
                     <Link to="/room" className="link-button">Play Game</Link>
                     <Link to="/matchhistory" className="link-button">Match History</Link>
+                    <button onClick={handleLogout} className="link-button logout-button">Logout</button>
                 </>}
             </div>
         </div>

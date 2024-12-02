@@ -43,6 +43,14 @@ router.post("/login", (req, res) => {
     });    
 });
 
+router.post("/logout", (req, res) => {
+    try {
+        res.status(200).json({ message: "Logout successful" });
+    } catch (err) {
+        res.status(500).json({ error: "Logout failed" });
+    }
+});
+
 router.post("/signup", (req, res) => {
     // check if username or email is taken
     userModel.findOne({
