@@ -118,6 +118,11 @@ const DailyChallengePage = () => {
 
       const data = await response.json();
       console.log("Score saved successfully:", data);
+      // save score to local storage
+      let newUserData = JSON.parse(userData);
+      newUserData.dailyScore = finalScore;
+      localStorage.setItem("userData", JSON.stringify(newUserData));
+
     } catch (error) {
       console.error("Error saving score:", error);
     }
