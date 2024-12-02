@@ -66,6 +66,27 @@ function Game() {
     } catch (error) {
       console.error("Error submitting answers:", error);
     }
+
+    // Game ended?
+    if (idx + 1 === state.questionSets.length) {
+      try {
+        const response = await fetch(`${SERVER}/game/saveExit`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            code: state.code,       // room code
+          })
+        });
+
+        if (!response.ok) {
+          throw new Error("Failed to save on exit.");
+        }
+      } catch (error) {
+        console.error("Error saving on exit:", error);
+      }
+    }
   }
 
   // Calculate local score when submitting answer
