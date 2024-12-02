@@ -16,6 +16,7 @@ const DailyChallengePage = () => {
   const [startTime, setStartTime] = useState(null); // Start time for scoring
   const [points, setPoints] = useState(0); // Total points
   const [message, setMessage] = useState(""); // Feedback messages
+  const [alreadyPlayed, setAlreadyPlayed] = useState(false);
   const [gameState, setGameState] = useState("ready"); // "ready", "playing", or "finished"
   const navigate = useNavigate();
 
@@ -33,8 +34,9 @@ const DailyChallengePage = () => {
       }
 
       if (dailyScore !== -1) {
-        alert("You have already played the daily challenge. Wait another day.");
-        navigate("/game");
+        setAlreadyPlayed(true);
+        setMessage("You have already played the daily challenge. Wait another day.");
+        return;
       }
 
       try {
@@ -118,6 +120,13 @@ const DailyChallengePage = () => {
 
       const data = await response.json();
       console.log("Score saved successfully:", data);
+
+      const updatedUserData = {
+        ...JSON.parse(localStorage.getItem("userData")),
+        dailyScore: finalScore,
+      };
+      
+      localStorage.setItem("userData", JSON.stringify(updatedUserData));
     } catch (error) {
       console.error("Error saving score:", error);
     }
@@ -168,16 +177,22 @@ const DailyChallengePage = () => {
     }
   };
 
+  if (alreadyPlayed) {
+    return (
+      <div className="daily-challenge-container">
+        <h2>{message}</h2>
+        <button
+          className="leaderboard-button"
+          onClick={() => navigate("/dailychallenge/leaderboard")}
+        >
+          View Leaderboard
+        </button>
+      </div>
+    );
+  }
+
   if (loading) return <div>Loading...</div>;
   if (error) return <div>Error: {error}</div>;
-
-  if (
-    !dailyChallenge ||
-    !dailyChallenge.questions ||
-    dailyChallenge.questions.length === 0
-  ) {
-    return <div>No daily challenge available. Please try again later.</div>;
-  }
 
   const currentQuestion = dailyChallenge.questions[currentRound];
 
