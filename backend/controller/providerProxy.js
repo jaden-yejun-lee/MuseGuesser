@@ -58,24 +58,7 @@ class ProviderProxy {
         console.log(`Trying to get track with id ${trackId}`)
 
         if (!(trackId in this.cache)) {
-            // request for specific track
-            console.log(`Requesting track with id ${trackId} from Spotify`)
-            try {
-                const accessToken = await getAccessToken();
-                const response = await axios.get(
-                  `https://api.spotify.com/v1/tracks/${trackId}`,
-                  {
-                    headers: {
-                      Authorization: `Bearer ${accessToken}`,
-                    },
-                  }
-                ).catch((error) => {console.log(error)});
-
-                this.addToCache(trackId, response.data) // add to cache
-              } catch (error) {
-                // TODO: error handling
-                throw error
-              }
+            return null // trivial implementation
         }
 
         return this.cache[trackId]
@@ -84,31 +67,7 @@ class ProviderProxy {
     // Recommends tracks from genre
     //  TODO: for now we assume there is only one genre
     async recommendTracks(genre, limit = 10) {
-        try {
-            const accessToken = await getAccessToken();
-            const response = await axios.get(
-            `https://api.spotify.com/v1/recommendations?seed_genres=${genre}&limit=${limit}`,
-            {
-                headers: {
-                    Authorization: `Bearer ${accessToken}`,
-                },
-            }
-            ).catch((error) => console.log(error));
-
-            console.log("Getting responses")
-            response.data.tracks.forEach(track => {
-                track.genre = genre // append genre to the song
-                this.addToCache(track.id, track)
-            });
-
-            return response.data.tracks
-        } catch (error) {
-            // TODO: error handling
-            throw error
-        }
-
-        // TODO: Form recommendation from cache
-        //      TODO: could race condition happens here?
+        return null // trivial implementation
     }
 
     // (base) Get a random track with filter
