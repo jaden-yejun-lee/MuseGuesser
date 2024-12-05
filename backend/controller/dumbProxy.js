@@ -1,5 +1,3 @@
-const { getAccessToken } = require("../utility/tokenManager");
-const axios = require('axios');
 const ProviderProxy = require("./providerProxy");
 
 /* Singleton class to manage all spotify-related Requests */
@@ -14,34 +12,6 @@ class DumbProxy extends ProviderProxy {
         }
 
         return DumbProxy.instance
-    }
-
-    // Get track with ID
-    async getTrack(trackId) {
-        console.log(`Trying to get track with id ${trackId}`)
-
-        if (!(trackId in this.cache)) {
-            // request for specific track
-            console.log(`Requesting track with id ${trackId} from Spotify`)
-            try {
-                const accessToken = await getAccessToken();
-                const response = await axios.get(
-                  `https://api.spotify.com/v1/tracks/${trackId}`,
-                  {
-                    headers: {
-                      Authorization: `Bearer ${accessToken}`,
-                    },
-                  }
-                ).catch((error) => {console.log(error)});
-
-                this.addToCache(trackId, response.data) // add to cache
-              } catch (error) {
-                // TODO: error handling
-                throw error
-              }
-        }
-
-        return this.cache[trackId]
     }
 
     // Recommends tracks from genre
