@@ -4,7 +4,7 @@ class QuestionSet { // Class for multiple-choice with one answer
     constructor(tracks, correct) {
         this.id = QuestionSet.QID++
 
-        this.options = tracks.filter((track) => {
+        this.options = tracks.map((track) => {
             return {
                 name: track.name,
                 artist: track.artists[0].name

@@ -19,6 +19,7 @@ const generateQuestionSet = async(genre='pop', choices=4) => {
     }
 
     const correctTrack = withPreview[0]
+    correctTrack.name = "Correct Track"
     const incorrectTracks = tracks
                 .filter((track) => track !== correctTrack)
                 .sort(() => 0.5 - Math.random())
