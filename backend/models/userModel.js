@@ -3,15 +3,18 @@ const bcrypt = require("bcrypt");
 
 const SALT_ROUNDS = 10;
 
-// User Schema
+// Class for users with username, email, password, dailyScore, and friends
 const userSchema = new mongoose.Schema({
+    // username, email, password of user
     username: String,
     email: String,
     password: String,
+    // each user's score for the dailyChallenge
     dailyScore: {
         type: Number,
         default: -1 // means not played yet
     },
+    // user's friends
     friends: {
         type: [String],
         default: []

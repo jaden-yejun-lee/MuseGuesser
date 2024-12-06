@@ -1,0 +1,3352 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>JSDoc: Source: bson/vendor/text-encoding/lib/encoding.js</title>
+
+    <script src="scripts/prettify/prettify.js"> </script>
+    <script src="scripts/prettify/lang-css.js"> </script>
+    <!--[if lt IE 9]>
+      <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+    <link type="text/css" rel="stylesheet" href="styles/prettify-tomorrow.css">
+    <link type="text/css" rel="stylesheet" href="styles/jsdoc-default.css">
+</head>
+
+<body>
+
+<div id="main">
+
+    <h1 class="page-title">Source: bson/vendor/text-encoding/lib/encoding.js</h1>
+
+    
+
+
+
+    
+    <section>
+        <article>
+            <pre class="prettyprint source linenums"><code>// This is free and unencumbered software released into the public domain.
+// See LICENSE.md for more information.
+
+/**
+ * @fileoverview Global |this| required for resolving indexes in node.
+ * @suppress {globalThis}
+ */
+(function(global) {
+  'use strict';
+
+  //
+  // Utilities
+  //
+
+  /**
+   * @param {number} a The number to test.
+   * @param {number} min The minimum value in the range, inclusive.
+   * @param {number} max The maximum value in the range, inclusive.
+   * @return {boolean} True if a >= min and a &lt;= max.
+   */
+  function inRange(a, min, max) {
+    return min &lt;= a &amp;&amp; a &lt;= max;
+  }
+
+  /**
+   * @param {!Array.&lt;*>} array The array to check.
+   * @param {*} item The item to look for in the array.
+   * @return {boolean} True if the item appears in the array.
+   */
+  function includes(array, item) {
+    return array.indexOf(item) !== -1;
+  }
+
+  var floor = Math.floor;
+
+  /**
+   * @param {*} o
+   * @return {Object}
+   */
+  function ToDictionary(o) {
+    if (o === undefined) return {};
+    if (o === Object(o)) return o;
+    throw TypeError('Could not convert argument to dictionary');
+  }
+
+  /**
+   * @param {string} string Input string of UTF-16 code units.
+   * @return {!Array.&lt;number>} Code points.
+   */
+  function stringToCodePoints(string) {
+    // https://heycam.github.io/webidl/#dfn-obtain-unicode
+
+    // 1. Let S be the DOMString value.
+    var s = String(string);
+
+    // 2. Let n be the length of S.
+    var n = s.length;
+
+    // 3. Initialize i to 0.
+    var i = 0;
+
+    // 4. Initialize U to be an empty sequence of Unicode characters.
+    var u = [];
+
+    // 5. While i &lt; n:
+    while (i &lt; n) {
+
+      // 1. Let c be the code unit in S at index i.
+      var c = s.charCodeAt(i);
+
+      // 2. Depending on the value of c:
+
+      // c &lt; 0xD800 or c > 0xDFFF
+      if (c &lt; 0xD800 || c > 0xDFFF) {
+        // Append to U the Unicode character with code point c.
+        u.push(c);
+      }
+
+      // 0xDC00 ≤ c ≤ 0xDFFF
+      else if (0xDC00 &lt;= c &amp;&amp; c &lt;= 0xDFFF) {
+        // Append to U a U+FFFD REPLACEMENT CHARACTER.
+        u.push(0xFFFD);
+      }
+
+      // 0xD800 ≤ c ≤ 0xDBFF
+      else if (0xD800 &lt;= c &amp;&amp; c &lt;= 0xDBFF) {
+        // 1. If i = n−1, then append to U a U+FFFD REPLACEMENT
+        // CHARACTER.
+        if (i === n - 1) {
+          u.push(0xFFFD);
+        }
+        // 2. Otherwise, i &lt; n−1:
+        else {
+          // 1. Let d be the code unit in S at index i+1.
+          var d = s.charCodeAt(i + 1);
+
+          // 2. If 0xDC00 ≤ d ≤ 0xDFFF, then:
+          if (0xDC00 &lt;= d &amp;&amp; d &lt;= 0xDFFF) {
+            // 1. Let a be c &amp; 0x3FF.
+            var a = c &amp; 0x3FF;
+
+            // 2. Let b be d &amp; 0x3FF.
+            var b = d &amp; 0x3FF;
+
+            // 3. Append to U the Unicode character with code point
+            // 2^16+2^10*a+b.
+            u.push(0x10000 + (a &lt;&lt; 10) + b);
+
+            // 4. Set i to i+1.
+            i += 1;
+          }
+
+          // 3. Otherwise, d &lt; 0xDC00 or d > 0xDFFF. Append to U a
+          // U+FFFD REPLACEMENT CHARACTER.
+          else  {
+            u.push(0xFFFD);
+          }
+        }
+      }
+
+      // 3. Set i to i+1.
+      i += 1;
+    }
+
+    // 6. Return U.
+    return u;
+  }
+
+  /**
+   * @param {!Array.&lt;number>} code_points Array of code points.
+   * @return {string} string String of UTF-16 code units.
+   */
+  function codePointsToString(code_points) {
+    var s = '';
+    for (var i = 0; i &lt; code_points.length; ++i) {
+      var cp = code_points[i];
+      if (cp &lt;= 0xFFFF) {
+        s += String.fromCharCode(cp);
+      } else {
+        cp -= 0x10000;
+        s += String.fromCharCode((cp >> 10) + 0xD800,
+                                 (cp &amp; 0x3FF) + 0xDC00);
+      }
+    }
+    return s;
+  }
+
+
+  //
+  // Implementation of Encoding specification
+  // https://encoding.spec.whatwg.org/
+  //
+
+  //
+  // 4. Terminology
+  //
+
+  /**
+   * An ASCII byte is a byte in the range 0x00 to 0x7F, inclusive.
+   * @param {number} a The number to test.
+   * @return {boolean} True if a is in the range 0x00 to 0x7F, inclusive.
+   */
+  function isASCIIByte(a) {
+    return 0x00 &lt;= a &amp;&amp; a &lt;= 0x7F;
+  }
+
+  /**
+   * An ASCII code point is a code point in the range U+0000 to
+   * U+007F, inclusive.
+   */
+  var isASCIICodePoint = isASCIIByte;
+
+
+  /**
+   * End-of-stream is a special token that signifies no more tokens
+   * are in the stream.
+   * @const
+   */ var end_of_stream = -1;
+
+  /**
+   * A stream represents an ordered sequence of tokens.
+   *
+   * @constructor
+   * @param {!(Array.&lt;number>|Uint8Array)} tokens Array of tokens that provide
+   * the stream.
+   */
+  function Stream(tokens) {
+    /** @type {!Array.&lt;number>} */
+    this.tokens = [].slice.call(tokens);
+    // Reversed as push/pop is more efficient than shift/unshift.
+    this.tokens.reverse();
+  }
+
+  Stream.prototype = {
+    /**
+     * @return {boolean} True if end-of-stream has been hit.
+     */
+    endOfStream: function() {
+      return !this.tokens.length;
+    },
+
+    /**
+     * When a token is read from a stream, the first token in the
+     * stream must be returned and subsequently removed, and
+     * end-of-stream must be returned otherwise.
+     *
+     * @return {number} Get the next token from the stream, or
+     * end_of_stream.
+     */
+     read: function() {
+      if (!this.tokens.length)
+        return end_of_stream;
+       return this.tokens.pop();
+     },
+
+    /**
+     * When one or more tokens are prepended to a stream, those tokens
+     * must be inserted, in given order, before the first token in the
+     * stream.
+     *
+     * @param {(number|!Array.&lt;number>)} token The token(s) to prepend to the
+     * stream.
+     */
+    prepend: function(token) {
+      if (Array.isArray(token)) {
+        var tokens = /**@type {!Array.&lt;number>}*/(token);
+        while (tokens.length)
+          this.tokens.push(tokens.pop());
+      } else {
+        this.tokens.push(token);
+      }
+    },
+
+    /**
+     * When one or more tokens are pushed to a stream, those tokens
+     * must be inserted, in given order, after the last token in the
+     * stream.
+     *
+     * @param {(number|!Array.&lt;number>)} token The tokens(s) to push to the
+     * stream.
+     */
+    push: function(token) {
+      if (Array.isArray(token)) {
+        var tokens = /**@type {!Array.&lt;number>}*/(token);
+        while (tokens.length)
+          this.tokens.unshift(tokens.shift());
+      } else {
+        this.tokens.unshift(token);
+      }
+    }
+  };
+
+  //
+  // 5. Encodings
+  //
+
+  // 5.1 Encoders and decoders
+
+  /** @const */
+  var finished = -1;
+
+  /**
+   * @param {boolean} fatal If true, decoding errors raise an exception.
+   * @param {number=} opt_code_point Override the standard fallback code point.
+   * @return {number} The code point to insert on a decoding error.
+   */
+  function decoderError(fatal, opt_code_point) {
+    if (fatal)
+      throw TypeError('Decoder error');
+    return opt_code_point || 0xFFFD;
+  }
+
+  /**
+   * @param {number} code_point The code point that could not be encoded.
+   * @return {number} Always throws, no value is actually returned.
+   */
+  function encoderError(code_point) {
+    throw TypeError('The code point ' + code_point + ' could not be encoded.');
+  }
+
+  /** @interface */
+  function Decoder() {}
+  Decoder.prototype = {
+    /**
+     * @param {Stream} stream The stream of bytes being decoded.
+     * @param {number} bite The next byte read from the stream.
+     * @return {?(number|!Array.&lt;number>)} The next code point(s)
+     *     decoded, or null if not enough data exists in the input
+     *     stream to decode a complete code point, or |finished|.
+     */
+    handler: function(stream, bite) {}
+  };
+
+  /** @interface */
+  function Encoder() {}
+  Encoder.prototype = {
+    /**
+     * @param {Stream} stream The stream of code points being encoded.
+     * @param {number} code_point Next code point read from the stream.
+     * @return {(number|!Array.&lt;number>)} Byte(s) to emit, or |finished|.
+     */
+    handler: function(stream, code_point) {}
+  };
+
+  // 5.2 Names and labels
+
+  // TODO: Define @typedef for Encoding: {name:string,labels:Array.&lt;string>}
+  // https://github.com/google/closure-compiler/issues/247
+
+  /**
+   * @param {string} label The encoding label.
+   * @return {?{name:string,labels:Array.&lt;string>}}
+   */
+  function getEncoding(label) {
+    // 1. Remove any leading and trailing ASCII whitespace from label.
+    label = String(label).trim().toLowerCase();
+
+    // 2. If label is an ASCII case-insensitive match for any of the
+    // labels listed in the table below, return the corresponding
+    // encoding, and failure otherwise.
+    if (Object.prototype.hasOwnProperty.call(label_to_encoding, label)) {
+      return label_to_encoding[label];
+    }
+    return null;
+  }
+
+  /**
+   * Encodings table: https://encoding.spec.whatwg.org/encodings.json
+   * @const
+   * @type {!Array.&lt;{
+   *          heading: string,
+   *          encodings: Array.&lt;{name:string,labels:Array.&lt;string>}>
+   *        }>}
+   */
+  var encodings = [
+    {
+      "encodings": [
+        {
+          "labels": [
+            "unicode-1-1-utf-8",
+            "utf-8",
+            "utf8"
+          ],
+          "name": "UTF-8"
+        }
+      ],
+      "heading": "The Encoding"
+    },
+    {
+      "encodings": [
+        {
+          "labels": [
+            "866",
+            "cp866",
+            "csibm866",
+            "ibm866"
+          ],
+          "name": "IBM866"
+        },
+        {
+          "labels": [
+            "csisolatin2",
+            "iso-8859-2",
+            "iso-ir-101",
+            "iso8859-2",
+            "iso88592",
+            "iso_8859-2",
+            "iso_8859-2:1987",
+            "l2",
+            "latin2"
+          ],
+          "name": "ISO-8859-2"
+        },
+        {
+          "labels": [
+            "csisolatin3",
+            "iso-8859-3",
+            "iso-ir-109",
+            "iso8859-3",
+            "iso88593",
+            "iso_8859-3",
+            "iso_8859-3:1988",
+            "l3",
+            "latin3"
+          ],
+          "name": "ISO-8859-3"
+        },
+        {
+          "labels": [
+            "csisolatin4",
+            "iso-8859-4",
+            "iso-ir-110",
+            "iso8859-4",
+            "iso88594",
+            "iso_8859-4",
+            "iso_8859-4:1988",
+            "l4",
+            "latin4"
+          ],
+          "name": "ISO-8859-4"
+        },
+        {
+          "labels": [
+            "csisolatincyrillic",
+            "cyrillic",
+            "iso-8859-5",
+            "iso-ir-144",
+            "iso8859-5",
+            "iso88595",
+            "iso_8859-5",
+            "iso_8859-5:1988"
+          ],
+          "name": "ISO-8859-5"
+        },
+        {
+          "labels": [
+            "arabic",
+            "asmo-708",
+            "csiso88596e",
+            "csiso88596i",
+            "csisolatinarabic",
+            "ecma-114",
+            "iso-8859-6",
+            "iso-8859-6-e",
+            "iso-8859-6-i",
+            "iso-ir-127",
+            "iso8859-6",
+            "iso88596",
+            "iso_8859-6",
+            "iso_8859-6:1987"
+          ],
+          "name": "ISO-8859-6"
+        },
+        {
+          "labels": [
+            "csisolatingreek",
+            "ecma-118",
+            "elot_928",
+            "greek",
+            "greek8",
+            "iso-8859-7",
+            "iso-ir-126",
+            "iso8859-7",
+            "iso88597",
+            "iso_8859-7",
+            "iso_8859-7:1987",
+            "sun_eu_greek"
+          ],
+          "name": "ISO-8859-7"
+        },
+        {
+          "labels": [
+            "csiso88598e",
+            "csisolatinhebrew",
+            "hebrew",
+            "iso-8859-8",
+            "iso-8859-8-e",
+            "iso-ir-138",
+            "iso8859-8",
+            "iso88598",
+            "iso_8859-8",
+            "iso_8859-8:1988",
+            "visual"
+          ],
+          "name": "ISO-8859-8"
+        },
+        {
+          "labels": [
+            "csiso88598i",
+            "iso-8859-8-i",
+            "logical"
+          ],
+          "name": "ISO-8859-8-I"
+        },
+        {
+          "labels": [
+            "csisolatin6",
+            "iso-8859-10",
+            "iso-ir-157",
+            "iso8859-10",
+            "iso885910",
+            "l6",
+            "latin6"
+          ],
+          "name": "ISO-8859-10"
+        },
+        {
+          "labels": [
+            "iso-8859-13",
+            "iso8859-13",
+            "iso885913"
+          ],
+          "name": "ISO-8859-13"
+        },
+        {
+          "labels": [
+            "iso-8859-14",
+            "iso8859-14",
+            "iso885914"
+          ],
+          "name": "ISO-8859-14"
+        },
+        {
+          "labels": [
+            "csisolatin9",
+            "iso-8859-15",
+            "iso8859-15",
+            "iso885915",
+            "iso_8859-15",
+            "l9"
+          ],
+          "name": "ISO-8859-15"
+        },
+        {
+          "labels": [
+            "iso-8859-16"
+          ],
+          "name": "ISO-8859-16"
+        },
+        {
+          "labels": [
+            "cskoi8r",
+            "koi",
+            "koi8",
+            "koi8-r",
+            "koi8_r"
+          ],
+          "name": "KOI8-R"
+        },
+        {
+          "labels": [
+            "koi8-ru",
+            "koi8-u"
+          ],
+          "name": "KOI8-U"
+        },
+        {
+          "labels": [
+            "csmacintosh",
+            "mac",
+            "macintosh",
+            "x-mac-roman"
+          ],
+          "name": "macintosh"
+        },
+        {
+          "labels": [
+            "dos-874",
+            "iso-8859-11",
+            "iso8859-11",
+            "iso885911",
+            "tis-620",
+            "windows-874"
+          ],
+          "name": "windows-874"
+        },
+        {
+          "labels": [
+            "cp1250",
+            "windows-1250",
+            "x-cp1250"
+          ],
+          "name": "windows-1250"
+        },
+        {
+          "labels": [
+            "cp1251",
+            "windows-1251",
+            "x-cp1251"
+          ],
+          "name": "windows-1251"
+        },
+        {
+          "labels": [
+            "ansi_x3.4-1968",
+            "ascii",
+            "cp1252",
+            "cp819",
+            "csisolatin1",
+            "ibm819",
+            "iso-8859-1",
+            "iso-ir-100",
+            "iso8859-1",
+            "iso88591",
+            "iso_8859-1",
+            "iso_8859-1:1987",
+            "l1",
+            "latin1",
+            "us-ascii",
+            "windows-1252",
+            "x-cp1252"
+          ],
+          "name": "windows-1252"
+        },
+        {
+          "labels": [
+            "cp1253",
+            "windows-1253",
+            "x-cp1253"
+          ],
+          "name": "windows-1253"
+        },
+        {
+          "labels": [
+            "cp1254",
+            "csisolatin5",
+            "iso-8859-9",
+            "iso-ir-148",
+            "iso8859-9",
+            "iso88599",
+            "iso_8859-9",
+            "iso_8859-9:1989",
+            "l5",
+            "latin5",
+            "windows-1254",
+            "x-cp1254"
+          ],
+          "name": "windows-1254"
+        },
+        {
+          "labels": [
+            "cp1255",
+            "windows-1255",
+            "x-cp1255"
+          ],
+          "name": "windows-1255"
+        },
+        {
+          "labels": [
+            "cp1256",
+            "windows-1256",
+            "x-cp1256"
+          ],
+          "name": "windows-1256"
+        },
+        {
+          "labels": [
+            "cp1257",
+            "windows-1257",
+            "x-cp1257"
+          ],
+          "name": "windows-1257"
+        },
+        {
+          "labels": [
+            "cp1258",
+            "windows-1258",
+            "x-cp1258"
+          ],
+          "name": "windows-1258"
+        },
+        {
+          "labels": [
+            "x-mac-cyrillic",
+            "x-mac-ukrainian"
+          ],
+          "name": "x-mac-cyrillic"
+        }
+      ],
+      "heading": "Legacy single-byte encodings"
+    },
+    {
+      "encodings": [
+        {
+          "labels": [
+            "chinese",
+            "csgb2312",
+            "csiso58gb231280",
+            "gb2312",
+            "gb_2312",
+            "gb_2312-80",
+            "gbk",
+            "iso-ir-58",
+            "x-gbk"
+          ],
+          "name": "GBK"
+        },
+        {
+          "labels": [
+            "gb18030"
+          ],
+          "name": "gb18030"
+        }
+      ],
+      "heading": "Legacy multi-byte Chinese (simplified) encodings"
+    },
+    {
+      "encodings": [
+        {
+          "labels": [
+            "big5",
+            "big5-hkscs",
+            "cn-big5",
+            "csbig5",
+            "x-x-big5"
+          ],
+          "name": "Big5"
+        }
+      ],
+      "heading": "Legacy multi-byte Chinese (traditional) encodings"
+    },
+    {
+      "encodings": [
+        {
+          "labels": [
+            "cseucpkdfmtjapanese",
+            "euc-jp",
+            "x-euc-jp"
+          ],
+          "name": "EUC-JP"
+        },
+        {
+          "labels": [
+            "csiso2022jp",
+            "iso-2022-jp"
+          ],
+          "name": "ISO-2022-JP"
+        },
+        {
+          "labels": [
+            "csshiftjis",
+            "ms932",
+            "ms_kanji",
+            "shift-jis",
+            "shift_jis",
+            "sjis",
+            "windows-31j",
+            "x-sjis"
+          ],
+          "name": "Shift_JIS"
+        }
+      ],
+      "heading": "Legacy multi-byte Japanese encodings"
+    },
+    {
+      "encodings": [
+        {
+          "labels": [
+            "cseuckr",
+            "csksc56011987",
+            "euc-kr",
+            "iso-ir-149",
+            "korean",
+            "ks_c_5601-1987",
+            "ks_c_5601-1989",
+            "ksc5601",
+            "ksc_5601",
+            "windows-949"
+          ],
+          "name": "EUC-KR"
+        }
+      ],
+      "heading": "Legacy multi-byte Korean encodings"
+    },
+    {
+      "encodings": [
+        {
+          "labels": [
+            "csiso2022kr",
+            "hz-gb-2312",
+            "iso-2022-cn",
+            "iso-2022-cn-ext",
+            "iso-2022-kr"
+          ],
+          "name": "replacement"
+        },
+        {
+          "labels": [
+            "utf-16be"
+          ],
+          "name": "UTF-16BE"
+        },
+        {
+          "labels": [
+            "utf-16",
+            "utf-16le"
+          ],
+          "name": "UTF-16LE"
+        },
+        {
+          "labels": [
+            "x-user-defined"
+          ],
+          "name": "x-user-defined"
+        }
+      ],
+      "heading": "Legacy miscellaneous encodings"
+    }
+  ];
+
+  // Label to encoding registry.
+  /** @type {Object.&lt;string,{name:string,labels:Array.&lt;string>}>} */
+  var label_to_encoding = {};
+  encodings.forEach(function(category) {
+    category.encodings.forEach(function(encoding) {
+      encoding.labels.forEach(function(label) {
+        label_to_encoding[label] = encoding;
+      });
+    });
+  });
+
+  // Registry of of encoder/decoder factories, by encoding name.
+  /** @type {Object.&lt;string, function({fatal:boolean}): Encoder>} */
+  var encoders = {};
+  /** @type {Object.&lt;string, function({fatal:boolean}): Decoder>} */
+  var decoders = {};
+
+  //
+  // 6. Indexes
+  //
+
+  /**
+   * @param {number} pointer The |pointer| to search for.
+   * @param {(!Array.&lt;?number>|undefined)} index The |index| to search within.
+   * @return {?number} The code point corresponding to |pointer| in |index|,
+   *     or null if |code point| is not in |index|.
+   */
+  function indexCodePointFor(pointer, index) {
+    if (!index) return null;
+    return index[pointer] || null;
+  }
+
+  /**
+   * @param {number} code_point The |code point| to search for.
+   * @param {!Array.&lt;?number>} index The |index| to search within.
+   * @return {?number} The first pointer corresponding to |code point| in
+   *     |index|, or null if |code point| is not in |index|.
+   */
+  function indexPointerFor(code_point, index) {
+    var pointer = index.indexOf(code_point);
+    return pointer === -1 ? null : pointer;
+  }
+
+  /**
+   * @param {string} name Name of the index.
+   * @return {(!Array.&lt;number>|!Array.&lt;Array.&lt;number>>)}
+   *  */
+  function index(name) {
+    if (!('encoding-indexes' in global)) {
+      throw Error("Indexes missing." +
+                  " Did you forget to include encoding-indexes.js first?");
+    }
+    return global['encoding-indexes'][name];
+  }
+
+  /**
+   * @param {number} pointer The |pointer| to search for in the gb18030 index.
+   * @return {?number} The code point corresponding to |pointer| in |index|,
+   *     or null if |code point| is not in the gb18030 index.
+   */
+  function indexGB18030RangesCodePointFor(pointer) {
+    // 1. If pointer is greater than 39419 and less than 189000, or
+    // pointer is greater than 1237575, return null.
+    if ((pointer > 39419 &amp;&amp; pointer &lt; 189000) || (pointer > 1237575))
+      return null;
+
+    // 2. If pointer is 7457, return code point U+E7C7.
+    if (pointer === 7457) return 0xE7C7;
+
+    // 3. Let offset be the last pointer in index gb18030 ranges that
+    // is equal to or less than pointer and let code point offset be
+    // its corresponding code point.
+    var offset = 0;
+    var code_point_offset = 0;
+    var idx = index('gb18030-ranges');
+    var i;
+    for (i = 0; i &lt; idx.length; ++i) {
+      /** @type {!Array.&lt;number>} */
+      var entry = idx[i];
+      if (entry[0] &lt;= pointer) {
+        offset = entry[0];
+        code_point_offset = entry[1];
+      } else {
+        break;
+      }
+    }
+
+    // 4. Return a code point whose value is code point offset +
+    // pointer − offset.
+    return code_point_offset + pointer - offset;
+  }
+
+  /**
+   * @param {number} code_point The |code point| to locate in the gb18030 index.
+   * @return {number} The first pointer corresponding to |code point| in the
+   *     gb18030 index.
+   */
+  function indexGB18030RangesPointerFor(code_point) {
+    // 1. If code point is U+E7C7, return pointer 7457.
+    if (code_point === 0xE7C7) return 7457;
+
+    // 2. Let offset be the last code point in index gb18030 ranges
+    // that is equal to or less than code point and let pointer offset
+    // be its corresponding pointer.
+    var offset = 0;
+    var pointer_offset = 0;
+    var idx = index('gb18030-ranges');
+    var i;
+    for (i = 0; i &lt; idx.length; ++i) {
+      /** @type {!Array.&lt;number>} */
+      var entry = idx[i];
+      if (entry[1] &lt;= code_point) {
+        offset = entry[1];
+        pointer_offset = entry[0];
+      } else {
+        break;
+      }
+    }
+
+    // 3. Return a pointer whose value is pointer offset + code point
+    // − offset.
+    return pointer_offset + code_point - offset;
+  }
+
+  /**
+   * @param {number} code_point The |code_point| to search for in the Shift_JIS
+   *     index.
+   * @return {?number} The code point corresponding to |pointer| in |index|,
+   *     or null if |code point| is not in the Shift_JIS index.
+   */
+  function indexShiftJISPointerFor(code_point) {
+    // 1. Let index be index jis0208 excluding all entries whose
+    // pointer is in the range 8272 to 8835, inclusive.
+    shift_jis_index = shift_jis_index ||
+      index('jis0208').map(function(code_point, pointer) {
+        return inRange(pointer, 8272, 8835) ? null : code_point;
+      });
+    var index_ = shift_jis_index;
+
+    // 2. Return the index pointer for code point in index.
+    return index_.indexOf(code_point);
+  }
+  var shift_jis_index;
+
+  /**
+   * @param {number} code_point The |code_point| to search for in the big5
+   *     index.
+   * @return {?number} The code point corresponding to |pointer| in |index|,
+   *     or null if |code point| is not in the big5 index.
+   */
+  function indexBig5PointerFor(code_point) {
+    // 1. Let index be index Big5 excluding all entries whose pointer
+    big5_index_no_hkscs = big5_index_no_hkscs ||
+      index('big5').map(function(code_point, pointer) {
+        return (pointer &lt; (0xA1 - 0x81) * 157) ? null : code_point;
+      });
+    var index_ = big5_index_no_hkscs;
+
+    // 2. If code point is U+2550, U+255E, U+2561, U+256A, U+5341, or
+    // U+5345, return the last pointer corresponding to code point in
+    // index.
+    if (code_point === 0x2550 || code_point === 0x255E ||
+        code_point === 0x2561 || code_point === 0x256A ||
+        code_point === 0x5341 || code_point === 0x5345) {
+      return index_.lastIndexOf(code_point);
+    }
+
+    // 3. Return the index pointer for code point in index.
+    return indexPointerFor(code_point, index_);
+  }
+  var big5_index_no_hkscs;
+
+  //
+  // 8. API
+  //
+
+  /** @const */ var DEFAULT_ENCODING = 'utf-8';
+
+  // 8.1 Interface TextDecoder
+
+  /**
+   * @constructor
+   * @param {string=} label The label of the encoding;
+   *     defaults to 'utf-8'.
+   * @param {Object=} options
+   */
+  function TextDecoder(label, options) {
+    // Web IDL conventions
+    if (!(this instanceof TextDecoder))
+      throw TypeError('Called as a function. Did you forget \'new\'?');
+    label = label !== undefined ? String(label) : DEFAULT_ENCODING;
+    options = ToDictionary(options);
+
+    // A TextDecoder object has an associated encoding, decoder,
+    // stream, ignore BOM flag (initially unset), BOM seen flag
+    // (initially unset), error mode (initially replacement), and do
+    // not flush flag (initially unset).
+
+    /** @private */
+    this._encoding = null;
+    /** @private @type {?Decoder} */
+    this._decoder = null;
+    /** @private @type {boolean} */
+    this._ignoreBOM = false;
+    /** @private @type {boolean} */
+    this._BOMseen = false;
+    /** @private @type {string} */
+    this._error_mode = 'replacement';
+    /** @private @type {boolean} */
+    this._do_not_flush = false;
+
+
+    // 1. Let encoding be the result of getting an encoding from
+    // label.
+    var encoding = getEncoding(label);
+
+    // 2. If encoding is failure or replacement, throw a RangeError.
+    if (encoding === null || encoding.name === 'replacement')
+      throw RangeError('Unknown encoding: ' + label);
+    if (!decoders[encoding.name]) {
+      throw Error('Decoder not present.' +
+                  ' Did you forget to include encoding-indexes.js first?');
+    }
+
+    // 3. Let dec be a new TextDecoder object.
+    var dec = this;
+
+    // 4. Set dec's encoding to encoding.
+    dec._encoding = encoding;
+
+    // 5. If options's fatal member is true, set dec's error mode to
+    // fatal.
+    if (Boolean(options['fatal']))
+      dec._error_mode = 'fatal';
+
+    // 6. If options's ignoreBOM member is true, set dec's ignore BOM
+    // flag.
+    if (Boolean(options['ignoreBOM']))
+      dec._ignoreBOM = true;
+
+    // For pre-ES5 runtimes:
+    if (!Object.defineProperty) {
+      this.encoding = dec._encoding.name.toLowerCase();
+      this.fatal = dec._error_mode === 'fatal';
+      this.ignoreBOM = dec._ignoreBOM;
+    }
+
+    // 7. Return dec.
+    return dec;
+  }
+
+  if (Object.defineProperty) {
+    // The encoding attribute's getter must return encoding's name.
+    Object.defineProperty(TextDecoder.prototype, 'encoding', {
+      /** @this {TextDecoder} */
+      get: function() { return this._encoding.name.toLowerCase(); }
+    });
+
+    // The fatal attribute's getter must return true if error mode
+    // is fatal, and false otherwise.
+    Object.defineProperty(TextDecoder.prototype, 'fatal', {
+      /** @this {TextDecoder} */
+      get: function() { return this._error_mode === 'fatal'; }
+    });
+
+    // The ignoreBOM attribute's getter must return true if ignore
+    // BOM flag is set, and false otherwise.
+    Object.defineProperty(TextDecoder.prototype, 'ignoreBOM', {
+      /** @this {TextDecoder} */
+      get: function() { return this._ignoreBOM; }
+    });
+  }
+
+  /**
+   * @param {BufferSource=} input The buffer of bytes to decode.
+   * @param {Object=} options
+   * @return {string} The decoded string.
+   */
+  TextDecoder.prototype.decode = function decode(input, options) {
+    var bytes;
+    if (typeof input === 'object' &amp;&amp; input instanceof ArrayBuffer) {
+      bytes = new Uint8Array(input);
+    } else if (typeof input === 'object' &amp;&amp; 'buffer' in input &amp;&amp;
+               input.buffer instanceof ArrayBuffer) {
+      bytes = new Uint8Array(input.buffer,
+                             input.byteOffset,
+                             input.byteLength);
+    } else {
+      bytes = new Uint8Array(0);
+    }
+
+    options = ToDictionary(options);
+
+    // 1. If the do not flush flag is unset, set decoder to a new
+    // encoding's decoder, set stream to a new stream, and unset the
+    // BOM seen flag.
+    if (!this._do_not_flush) {
+      this._decoder = decoders[this._encoding.name]({
+        fatal: this._error_mode === 'fatal'});
+      this._BOMseen = false;
+    }
+
+    // 2. If options's stream is true, set the do not flush flag, and
+    // unset the do not flush flag otherwise.
+    this._do_not_flush = Boolean(options['stream']);
+
+    // 3. If input is given, push a copy of input to stream.
+    // TODO: Align with spec algorithm - maintain stream on instance.
+    var input_stream = new Stream(bytes);
+
+    // 4. Let output be a new stream.
+    var output = [];
+
+    /** @type {?(number|!Array.&lt;number>)} */
+    var result;
+
+    // 5. While true:
+    while (true) {
+      // 1. Let token be the result of reading from stream.
+      var token = input_stream.read();
+
+      // 2. If token is end-of-stream and the do not flush flag is
+      // set, return output, serialized.
+      // TODO: Align with spec algorithm.
+      if (token === end_of_stream)
+        break;
+
+      // 3. Otherwise, run these subsubsteps:
+
+      // 1. Let result be the result of processing token for decoder,
+      // stream, output, and error mode.
+      result = this._decoder.handler(input_stream, token);
+
+      // 2. If result is finished, return output, serialized.
+      if (result === finished)
+        break;
+
+      if (result !== null) {
+        if (Array.isArray(result))
+          output.push.apply(output, /**@type {!Array.&lt;number>}*/(result));
+        else
+          output.push(result);
+      }
+
+      // 3. Otherwise, if result is error, throw a TypeError.
+      // (Thrown in handler)
+
+      // 4. Otherwise, do nothing.
+    }
+    // TODO: Align with spec algorithm.
+    if (!this._do_not_flush) {
+      do {
+        result = this._decoder.handler(input_stream, input_stream.read());
+        if (result === finished)
+          break;
+        if (result === null)
+          continue;
+        if (Array.isArray(result))
+          output.push.apply(output, /**@type {!Array.&lt;number>}*/(result));
+        else
+          output.push(result);
+      } while (!input_stream.endOfStream());
+      this._decoder = null;
+    }
+
+    // A TextDecoder object also has an associated serialize stream
+    // algorithm...
+    /**
+     * @param {!Array.&lt;number>} stream
+     * @return {string}
+     * @this {TextDecoder}
+     */
+    function serializeStream(stream) {
+      // 1. Let token be the result of reading from stream.
+      // (Done in-place on array, rather than as a stream)
+
+      // 2. If encoding is UTF-8, UTF-16BE, or UTF-16LE, and ignore
+      // BOM flag and BOM seen flag are unset, run these subsubsteps:
+      if (includes(['UTF-8', 'UTF-16LE', 'UTF-16BE'], this._encoding.name) &amp;&amp;
+          !this._ignoreBOM &amp;&amp; !this._BOMseen) {
+        if (stream.length > 0 &amp;&amp; stream[0] === 0xFEFF) {
+          // 1. If token is U+FEFF, set BOM seen flag.
+          this._BOMseen = true;
+          stream.shift();
+        } else if (stream.length > 0) {
+          // 2. Otherwise, if token is not end-of-stream, set BOM seen
+          // flag and append token to stream.
+          this._BOMseen = true;
+        } else {
+          // 3. Otherwise, if token is not end-of-stream, append token
+          // to output.
+          // (no-op)
+        }
+      }
+      // 4. Otherwise, return output.
+      return codePointsToString(stream);
+    }
+
+    return serializeStream.call(this, output);
+  };
+
+  // 8.2 Interface TextEncoder
+
+  /**
+   * @constructor
+   * @param {string=} label The label of the encoding. NONSTANDARD.
+   * @param {Object=} options NONSTANDARD.
+   */
+  function TextEncoder(label, options) {
+    // Web IDL conventions
+    if (!(this instanceof TextEncoder))
+      throw TypeError('Called as a function. Did you forget \'new\'?');
+    options = ToDictionary(options);
+
+    // A TextEncoder object has an associated encoding and encoder.
+
+    /** @private */
+    this._encoding = null;
+    /** @private @type {?Encoder} */
+    this._encoder = null;
+
+    // Non-standard
+    /** @private @type {boolean} */
+    this._do_not_flush = false;
+    /** @private @type {string} */
+    this._fatal = Boolean(options['fatal']) ? 'fatal' : 'replacement';
+
+    // 1. Let enc be a new TextEncoder object.
+    var enc = this;
+
+    // 2. Set enc's encoding to UTF-8's encoder.
+    if (Boolean(options['NONSTANDARD_allowLegacyEncoding'])) {
+      // NONSTANDARD behavior.
+      label = label !== undefined ? String(label) : DEFAULT_ENCODING;
+      var encoding = getEncoding(label);
+      if (encoding === null || encoding.name === 'replacement')
+        throw RangeError('Unknown encoding: ' + label);
+      if (!encoders[encoding.name]) {
+        throw Error('Encoder not present.' +
+                    ' Did you forget to include encoding-indexes.js first?');
+      }
+      enc._encoding = encoding;
+    } else {
+      // Standard behavior.
+      enc._encoding = getEncoding('utf-8');
+
+      if (label !== undefined &amp;&amp; 'console' in global) {
+        console.warn('TextEncoder constructor called with encoding label, '
+                     + 'which is ignored.');
+      }
+    }
+
+    // For pre-ES5 runtimes:
+    if (!Object.defineProperty)
+      this.encoding = enc._encoding.name.toLowerCase();
+
+    // 3. Return enc.
+    return enc;
+  }
+
+  if (Object.defineProperty) {
+    // The encoding attribute's getter must return encoding's name.
+    Object.defineProperty(TextEncoder.prototype, 'encoding', {
+      /** @this {TextEncoder} */
+      get: function() { return this._encoding.name.toLowerCase(); }
+    });
+  }
+
+  /**
+   * @param {string=} opt_string The string to encode.
+   * @param {Object=} options
+   * @return {!Uint8Array} Encoded bytes, as a Uint8Array.
+   */
+  TextEncoder.prototype.encode = function encode(opt_string, options) {
+    opt_string = opt_string === undefined ? '' : String(opt_string);
+    options = ToDictionary(options);
+
+    // NOTE: This option is nonstandard. None of the encodings
+    // permitted for encoding (i.e. UTF-8, UTF-16) are stateful when
+    // the input is a USVString so streaming is not necessary.
+    if (!this._do_not_flush)
+      this._encoder = encoders[this._encoding.name]({
+        fatal: this._fatal === 'fatal'});
+    this._do_not_flush = Boolean(options['stream']);
+
+    // 1. Convert input to a stream.
+    var input = new Stream(stringToCodePoints(opt_string));
+
+    // 2. Let output be a new stream
+    var output = [];
+
+    /** @type {?(number|!Array.&lt;number>)} */
+    var result;
+    // 3. While true, run these substeps:
+    while (true) {
+      // 1. Let token be the result of reading from input.
+      var token = input.read();
+      if (token === end_of_stream)
+        break;
+      // 2. Let result be the result of processing token for encoder,
+      // input, output.
+      result = this._encoder.handler(input, token);
+      if (result === finished)
+        break;
+      if (Array.isArray(result))
+        output.push.apply(output, /**@type {!Array.&lt;number>}*/(result));
+      else
+        output.push(result);
+    }
+    // TODO: Align with spec algorithm.
+    if (!this._do_not_flush) {
+      while (true) {
+        result = this._encoder.handler(input, input.read());
+        if (result === finished)
+          break;
+        if (Array.isArray(result))
+          output.push.apply(output, /**@type {!Array.&lt;number>}*/(result));
+        else
+          output.push(result);
+      }
+      this._encoder = null;
+    }
+    // 3. If result is finished, convert output into a byte sequence,
+    // and then return a Uint8Array object wrapping an ArrayBuffer
+    // containing output.
+    return new Uint8Array(output);
+  };
+
+
+  //
+  // 9. The encoding
+  //
+
+  // 9.1 utf-8
+
+  // 9.1.1 utf-8 decoder
+  /**
+   * @constructor
+   * @implements {Decoder}
+   * @param {{fatal: boolean}} options
+   */
+  function UTF8Decoder(options) {
+    var fatal = options.fatal;
+
+    // utf-8's decoder's has an associated utf-8 code point, utf-8
+    // bytes seen, and utf-8 bytes needed (all initially 0), a utf-8
+    // lower boundary (initially 0x80), and a utf-8 upper boundary
+    // (initially 0xBF).
+    var /** @type {number} */ utf8_code_point = 0,
+        /** @type {number} */ utf8_bytes_seen = 0,
+        /** @type {number} */ utf8_bytes_needed = 0,
+        /** @type {number} */ utf8_lower_boundary = 0x80,
+        /** @type {number} */ utf8_upper_boundary = 0xBF;
+
+    /**
+     * @param {Stream} stream The stream of bytes being decoded.
+     * @param {number} bite The next byte read from the stream.
+     * @return {?(number|!Array.&lt;number>)} The next code point(s)
+     *     decoded, or null if not enough data exists in the input
+     *     stream to decode a complete code point.
+     */
+    this.handler = function(stream, bite) {
+      // 1. If byte is end-of-stream and utf-8 bytes needed is not 0,
+      // set utf-8 bytes needed to 0 and return error.
+      if (bite === end_of_stream &amp;&amp; utf8_bytes_needed !== 0) {
+        utf8_bytes_needed = 0;
+        return decoderError(fatal);
+      }
+
+      // 2. If byte is end-of-stream, return finished.
+      if (bite === end_of_stream)
+        return finished;
+
+      // 3. If utf-8 bytes needed is 0, based on byte:
+      if (utf8_bytes_needed === 0) {
+
+        // 0x00 to 0x7F
+        if (inRange(bite, 0x00, 0x7F)) {
+          // Return a code point whose value is byte.
+          return bite;
+        }
+
+        // 0xC2 to 0xDF
+        else if (inRange(bite, 0xC2, 0xDF)) {
+          // 1. Set utf-8 bytes needed to 1.
+          utf8_bytes_needed = 1;
+
+          // 2. Set UTF-8 code point to byte &amp; 0x1F.
+          utf8_code_point = bite &amp; 0x1F;
+        }
+
+        // 0xE0 to 0xEF
+        else if (inRange(bite, 0xE0, 0xEF)) {
+          // 1. If byte is 0xE0, set utf-8 lower boundary to 0xA0.
+          if (bite === 0xE0)
+            utf8_lower_boundary = 0xA0;
+          // 2. If byte is 0xED, set utf-8 upper boundary to 0x9F.
+          if (bite === 0xED)
+            utf8_upper_boundary = 0x9F;
+          // 3. Set utf-8 bytes needed to 2.
+          utf8_bytes_needed = 2;
+          // 4. Set UTF-8 code point to byte &amp; 0xF.
+          utf8_code_point = bite &amp; 0xF;
+        }
+
+        // 0xF0 to 0xF4
+        else if (inRange(bite, 0xF0, 0xF4)) {
+          // 1. If byte is 0xF0, set utf-8 lower boundary to 0x90.
+          if (bite === 0xF0)
+            utf8_lower_boundary = 0x90;
+          // 2. If byte is 0xF4, set utf-8 upper boundary to 0x8F.
+          if (bite === 0xF4)
+            utf8_upper_boundary = 0x8F;
+          // 3. Set utf-8 bytes needed to 3.
+          utf8_bytes_needed = 3;
+          // 4. Set UTF-8 code point to byte &amp; 0x7.
+          utf8_code_point = bite &amp; 0x7;
+        }
+
+        // Otherwise
+        else {
+          // Return error.
+          return decoderError(fatal);
+        }
+
+        // Return continue.
+        return null;
+      }
+
+      // 4. If byte is not in the range utf-8 lower boundary to utf-8
+      // upper boundary, inclusive, run these substeps:
+      if (!inRange(bite, utf8_lower_boundary, utf8_upper_boundary)) {
+
+        // 1. Set utf-8 code point, utf-8 bytes needed, and utf-8
+        // bytes seen to 0, set utf-8 lower boundary to 0x80, and set
+        // utf-8 upper boundary to 0xBF.
+        utf8_code_point = utf8_bytes_needed = utf8_bytes_seen = 0;
+        utf8_lower_boundary = 0x80;
+        utf8_upper_boundary = 0xBF;
+
+        // 2. Prepend byte to stream.
+        stream.prepend(bite);
+
+        // 3. Return error.
+        return decoderError(fatal);
+      }
+
+      // 5. Set utf-8 lower boundary to 0x80 and utf-8 upper boundary
+      // to 0xBF.
+      utf8_lower_boundary = 0x80;
+      utf8_upper_boundary = 0xBF;
+
+      // 6. Set UTF-8 code point to (UTF-8 code point &lt;&lt; 6) | (byte &amp;
+      // 0x3F)
+      utf8_code_point = (utf8_code_point &lt;&lt; 6) | (bite &amp; 0x3F);
+
+      // 7. Increase utf-8 bytes seen by one.
+      utf8_bytes_seen += 1;
+
+      // 8. If utf-8 bytes seen is not equal to utf-8 bytes needed,
+      // continue.
+      if (utf8_bytes_seen !== utf8_bytes_needed)
+        return null;
+
+      // 9. Let code point be utf-8 code point.
+      var code_point = utf8_code_point;
+
+      // 10. Set utf-8 code point, utf-8 bytes needed, and utf-8 bytes
+      // seen to 0.
+      utf8_code_point = utf8_bytes_needed = utf8_bytes_seen = 0;
+
+      // 11. Return a code point whose value is code point.
+      return code_point;
+    };
+  }
+
+  // 9.1.2 utf-8 encoder
+  /**
+   * @constructor
+   * @implements {Encoder}
+   * @param {{fatal: boolean}} options
+   */
+  function UTF8Encoder(options) {
+    var fatal = options.fatal;
+    /**
+     * @param {Stream} stream Input stream.
+     * @param {number} code_point Next code point read from the stream.
+     * @return {(number|!Array.&lt;number>)} Byte(s) to emit.
+     */
+    this.handler = function(stream, code_point) {
+      // 1. If code point is end-of-stream, return finished.
+      if (code_point === end_of_stream)
+        return finished;
+
+      // 2. If code point is an ASCII code point, return a byte whose
+      // value is code point.
+      if (isASCIICodePoint(code_point))
+        return code_point;
+
+      // 3. Set count and offset based on the range code point is in:
+      var count, offset;
+      // U+0080 to U+07FF, inclusive:
+      if (inRange(code_point, 0x0080, 0x07FF)) {
+        // 1 and 0xC0
+        count = 1;
+        offset = 0xC0;
+      }
+      // U+0800 to U+FFFF, inclusive:
+      else if (inRange(code_point, 0x0800, 0xFFFF)) {
+        // 2 and 0xE0
+        count = 2;
+        offset = 0xE0;
+      }
+      // U+10000 to U+10FFFF, inclusive:
+      else if (inRange(code_point, 0x10000, 0x10FFFF)) {
+        // 3 and 0xF0
+        count = 3;
+        offset = 0xF0;
+      }
+
+      // 4. Let bytes be a byte sequence whose first byte is (code
+      // point >> (6 × count)) + offset.
+      var bytes = [(code_point >> (6 * count)) + offset];
+
+      // 5. Run these substeps while count is greater than 0:
+      while (count > 0) {
+
+        // 1. Set temp to code point >> (6 × (count − 1)).
+        var temp = code_point >> (6 * (count - 1));
+
+        // 2. Append to bytes 0x80 | (temp &amp; 0x3F).
+        bytes.push(0x80 | (temp &amp; 0x3F));
+
+        // 3. Decrease count by one.
+        count -= 1;
+      }
+
+      // 6. Return bytes bytes, in order.
+      return bytes;
+    };
+  }
+
+  /** @param {{fatal: boolean}} options */
+  encoders['UTF-8'] = function(options) {
+    return new UTF8Encoder(options);
+  };
+  /** @param {{fatal: boolean}} options */
+  decoders['UTF-8'] = function(options) {
+    return new UTF8Decoder(options);
+  };
+
+  //
+  // 10. Legacy single-byte encodings
+  //
+
+  // 10.1 single-byte decoder
+  /**
+   * @constructor
+   * @implements {Decoder}
+   * @param {!Array.&lt;number>} index The encoding index.
+   * @param {{fatal: boolean}} options
+   */
+  function SingleByteDecoder(index, options) {
+    var fatal = options.fatal;
+    /**
+     * @param {Stream} stream The stream of bytes being decoded.
+     * @param {number} bite The next byte read from the stream.
+     * @return {?(number|!Array.&lt;number>)} The next code point(s)
+     *     decoded, or null if not enough data exists in the input
+     *     stream to decode a complete code point.
+     */
+    this.handler = function(stream, bite) {
+      // 1. If byte is end-of-stream, return finished.
+      if (bite === end_of_stream)
+        return finished;
+
+      // 2. If byte is an ASCII byte, return a code point whose value
+      // is byte.
+      if (isASCIIByte(bite))
+        return bite;
+
+      // 3. Let code point be the index code point for byte − 0x80 in
+      // index single-byte.
+      var code_point = index[bite - 0x80];
+
+      // 4. If code point is null, return error.
+      if (code_point === null)
+        return decoderError(fatal);
+
+      // 5. Return a code point whose value is code point.
+      return code_point;
+    };
+  }
+
+  // 10.2 single-byte encoder
+  /**
+   * @constructor
+   * @implements {Encoder}
+   * @param {!Array.&lt;?number>} index The encoding index.
+   * @param {{fatal: boolean}} options
+   */
+  function SingleByteEncoder(index, options) {
+    var fatal = options.fatal;
+    /**
+     * @param {Stream} stream Input stream.
+     * @param {number} code_point Next code point read from the stream.
+     * @return {(number|!Array.&lt;number>)} Byte(s) to emit.
+     */
+    this.handler = function(stream, code_point) {
+      // 1. If code point is end-of-stream, return finished.
+      if (code_point === end_of_stream)
+        return finished;
+
+      // 2. If code point is an ASCII code point, return a byte whose
+      // value is code point.
+      if (isASCIICodePoint(code_point))
+        return code_point;
+
+      // 3. Let pointer be the index pointer for code point in index
+      // single-byte.
+      var pointer = indexPointerFor(code_point, index);
+
+      // 4. If pointer is null, return error with code point.
+      if (pointer === null)
+        encoderError(code_point);
+
+      // 5. Return a byte whose value is pointer + 0x80.
+      return pointer + 0x80;
+    };
+  }
+
+  (function() {
+    if (!('encoding-indexes' in global))
+      return;
+    encodings.forEach(function(category) {
+      if (category.heading !== 'Legacy single-byte encodings')
+        return;
+      category.encodings.forEach(function(encoding) {
+        var name = encoding.name;
+        var idx = index(name.toLowerCase());
+        /** @param {{fatal: boolean}} options */
+        decoders[name] = function(options) {
+          return new SingleByteDecoder(idx, options);
+        };
+        /** @param {{fatal: boolean}} options */
+        encoders[name] = function(options) {
+          return new SingleByteEncoder(idx, options);
+        };
+      });
+    });
+  }());
+
+  //
+  // 11. Legacy multi-byte Chinese (simplified) encodings
+  //
+
+  // 11.1 gbk
+
+  // 11.1.1 gbk decoder
+  // gbk's decoder is gb18030's decoder.
+  /** @param {{fatal: boolean}} options */
+  decoders['GBK'] = function(options) {
+    return new GB18030Decoder(options);
+  };
+
+  // 11.1.2 gbk encoder
+  // gbk's encoder is gb18030's encoder with its gbk flag set.
+  /** @param {{fatal: boolean}} options */
+  encoders['GBK'] = function(options) {
+    return new GB18030Encoder(options, true);
+  };
+
+  // 11.2 gb18030
+
+  // 11.2.1 gb18030 decoder
+  /**
+   * @constructor
+   * @implements {Decoder}
+   * @param {{fatal: boolean}} options
+   */
+  function GB18030Decoder(options) {
+    var fatal = options.fatal;
+    // gb18030's decoder has an associated gb18030 first, gb18030
+    // second, and gb18030 third (all initially 0x00).
+    var /** @type {number} */ gb18030_first = 0x00,
+        /** @type {number} */ gb18030_second = 0x00,
+        /** @type {number} */ gb18030_third = 0x00;
+    /**
+     * @param {Stream} stream The stream of bytes being decoded.
+     * @param {number} bite The next byte read from the stream.
+     * @return {?(number|!Array.&lt;number>)} The next code point(s)
+     *     decoded, or null if not enough data exists in the input
+     *     stream to decode a complete code point.
+     */
+    this.handler = function(stream, bite) {
+      // 1. If byte is end-of-stream and gb18030 first, gb18030
+      // second, and gb18030 third are 0x00, return finished.
+      if (bite === end_of_stream &amp;&amp; gb18030_first === 0x00 &amp;&amp;
+          gb18030_second === 0x00 &amp;&amp; gb18030_third === 0x00) {
+        return finished;
+      }
+      // 2. If byte is end-of-stream, and gb18030 first, gb18030
+      // second, or gb18030 third is not 0x00, set gb18030 first,
+      // gb18030 second, and gb18030 third to 0x00, and return error.
+      if (bite === end_of_stream &amp;&amp;
+          (gb18030_first !== 0x00 || gb18030_second !== 0x00 ||
+           gb18030_third !== 0x00)) {
+        gb18030_first = 0x00;
+        gb18030_second = 0x00;
+        gb18030_third = 0x00;
+        decoderError(fatal);
+      }
+      var code_point;
+      // 3. If gb18030 third is not 0x00, run these substeps:
+      if (gb18030_third !== 0x00) {
+        // 1. Let code point be null.
+        code_point = null;
+        // 2. If byte is in the range 0x30 to 0x39, inclusive, set
+        // code point to the index gb18030 ranges code point for
+        // (((gb18030 first − 0x81) × 10 + gb18030 second − 0x30) ×
+        // 126 + gb18030 third − 0x81) × 10 + byte − 0x30.
+        if (inRange(bite, 0x30, 0x39)) {
+          code_point = indexGB18030RangesCodePointFor(
+              (((gb18030_first - 0x81) * 10 + gb18030_second - 0x30) * 126 +
+               gb18030_third - 0x81) * 10 + bite - 0x30);
+        }
+
+        // 3. Let buffer be a byte sequence consisting of gb18030
+        // second, gb18030 third, and byte, in order.
+        var buffer = [gb18030_second, gb18030_third, bite];
+
+        // 4. Set gb18030 first, gb18030 second, and gb18030 third to
+        // 0x00.
+        gb18030_first = 0x00;
+        gb18030_second = 0x00;
+        gb18030_third = 0x00;
+
+        // 5. If code point is null, prepend buffer to stream and
+        // return error.
+        if (code_point === null) {
+          stream.prepend(buffer);
+          return decoderError(fatal);
+        }
+
+        // 6. Return a code point whose value is code point.
+        return code_point;
+      }
+
+      // 4. If gb18030 second is not 0x00, run these substeps:
+      if (gb18030_second !== 0x00) {
+
+        // 1. If byte is in the range 0x81 to 0xFE, inclusive, set
+        // gb18030 third to byte and return continue.
+        if (inRange(bite, 0x81, 0xFE)) {
+          gb18030_third = bite;
+          return null;
+        }
+
+        // 2. Prepend gb18030 second followed by byte to stream, set
+        // gb18030 first and gb18030 second to 0x00, and return error.
+        stream.prepend([gb18030_second, bite]);
+        gb18030_first = 0x00;
+        gb18030_second = 0x00;
+        return decoderError(fatal);
+      }
+
+      // 5. If gb18030 first is not 0x00, run these substeps:
+      if (gb18030_first !== 0x00) {
+
+        // 1. If byte is in the range 0x30 to 0x39, inclusive, set
+        // gb18030 second to byte and return continue.
+        if (inRange(bite, 0x30, 0x39)) {
+          gb18030_second = bite;
+          return null;
+        }
+
+        // 2. Let lead be gb18030 first, let pointer be null, and set
+        // gb18030 first to 0x00.
+        var lead = gb18030_first;
+        var pointer = null;
+        gb18030_first = 0x00;
+
+        // 3. Let offset be 0x40 if byte is less than 0x7F and 0x41
+        // otherwise.
+        var offset = bite &lt; 0x7F ? 0x40 : 0x41;
+
+        // 4. If byte is in the range 0x40 to 0x7E, inclusive, or 0x80
+        // to 0xFE, inclusive, set pointer to (lead − 0x81) × 190 +
+        // (byte − offset).
+        if (inRange(bite, 0x40, 0x7E) || inRange(bite, 0x80, 0xFE))
+          pointer = (lead - 0x81) * 190 + (bite - offset);
+
+        // 5. Let code point be null if pointer is null and the index
+        // code point for pointer in index gb18030 otherwise.
+        code_point = pointer === null ? null :
+            indexCodePointFor(pointer, index('gb18030'));
+
+        // 6. If code point is null and byte is an ASCII byte, prepend
+        // byte to stream.
+        if (code_point === null &amp;&amp; isASCIIByte(bite))
+          stream.prepend(bite);
+
+        // 7. If code point is null, return error.
+        if (code_point === null)
+          return decoderError(fatal);
+
+        // 8. Return a code point whose value is code point.
+        return code_point;
+      }
+
+      // 6. If byte is an ASCII byte, return a code point whose value
+      // is byte.
+      if (isASCIIByte(bite))
+        return bite;
+
+      // 7. If byte is 0x80, return code point U+20AC.
+      if (bite === 0x80)
+        return 0x20AC;
+
+      // 8. If byte is in the range 0x81 to 0xFE, inclusive, set
+      // gb18030 first to byte and return continue.
+      if (inRange(bite, 0x81, 0xFE)) {
+        gb18030_first = bite;
+        return null;
+      }
+
+      // 9. Return error.
+      return decoderError(fatal);
+    };
+  }
+
+  // 11.2.2 gb18030 encoder
+  /**
+   * @constructor
+   * @implements {Encoder}
+   * @param {{fatal: boolean}} options
+   * @param {boolean=} gbk_flag
+   */
+  function GB18030Encoder(options, gbk_flag) {
+    var fatal = options.fatal;
+    // gb18030's decoder has an associated gbk flag (initially unset).
+    /**
+     * @param {Stream} stream Input stream.
+     * @param {number} code_point Next code point read from the stream.
+     * @return {(number|!Array.&lt;number>)} Byte(s) to emit.
+     */
+    this.handler = function(stream, code_point) {
+      // 1. If code point is end-of-stream, return finished.
+      if (code_point === end_of_stream)
+        return finished;
+
+      // 2. If code point is an ASCII code point, return a byte whose
+      // value is code point.
+      if (isASCIICodePoint(code_point))
+        return code_point;
+
+      // 3. If code point is U+E5E5, return error with code point.
+      if (code_point === 0xE5E5)
+        return encoderError(code_point);
+
+      // 4. If the gbk flag is set and code point is U+20AC, return
+      // byte 0x80.
+      if (gbk_flag &amp;&amp; code_point === 0x20AC)
+        return 0x80;
+
+      // 5. Let pointer be the index pointer for code point in index
+      // gb18030.
+      var pointer = indexPointerFor(code_point, index('gb18030'));
+
+      // 6. If pointer is not null, run these substeps:
+      if (pointer !== null) {
+
+        // 1. Let lead be floor(pointer / 190) + 0x81.
+        var lead = floor(pointer / 190) + 0x81;
+
+        // 2. Let trail be pointer % 190.
+        var trail = pointer % 190;
+
+        // 3. Let offset be 0x40 if trail is less than 0x3F and 0x41 otherwise.
+        var offset = trail &lt; 0x3F ? 0x40 : 0x41;
+
+        // 4. Return two bytes whose values are lead and trail + offset.
+        return [lead, trail + offset];
+      }
+
+      // 7. If gbk flag is set, return error with code point.
+      if (gbk_flag)
+        return encoderError(code_point);
+
+      // 8. Set pointer to the index gb18030 ranges pointer for code
+      // point.
+      pointer = indexGB18030RangesPointerFor(code_point);
+
+      // 9. Let byte1 be floor(pointer / 10 / 126 / 10).
+      var byte1 = floor(pointer / 10 / 126 / 10);
+
+      // 10. Set pointer to pointer − byte1 × 10 × 126 × 10.
+      pointer = pointer - byte1 * 10 * 126 * 10;
+
+      // 11. Let byte2 be floor(pointer / 10 / 126).
+      var byte2 = floor(pointer / 10 / 126);
+
+      // 12. Set pointer to pointer − byte2 × 10 × 126.
+      pointer = pointer - byte2 * 10 * 126;
+
+      // 13. Let byte3 be floor(pointer / 10).
+      var byte3 = floor(pointer / 10);
+
+      // 14. Let byte4 be pointer − byte3 × 10.
+      var byte4 = pointer - byte3 * 10;
+
+      // 15. Return four bytes whose values are byte1 + 0x81, byte2 +
+      // 0x30, byte3 + 0x81, byte4 + 0x30.
+      return [byte1 + 0x81,
+              byte2 + 0x30,
+              byte3 + 0x81,
+              byte4 + 0x30];
+    };
+  }
+
+  /** @param {{fatal: boolean}} options */
+  encoders['gb18030'] = function(options) {
+    return new GB18030Encoder(options);
+  };
+  /** @param {{fatal: boolean}} options */
+  decoders['gb18030'] = function(options) {
+    return new GB18030Decoder(options);
+  };
+
+
+  //
+  // 12. Legacy multi-byte Chinese (traditional) encodings
+  //
+
+  // 12.1 Big5
+
+  // 12.1.1 Big5 decoder
+  /**
+   * @constructor
+   * @implements {Decoder}
+   * @param {{fatal: boolean}} options
+   */
+  function Big5Decoder(options) {
+    var fatal = options.fatal;
+    // Big5's decoder has an associated Big5 lead (initially 0x00).
+    var /** @type {number} */ Big5_lead = 0x00;
+
+    /**
+     * @param {Stream} stream The stream of bytes being decoded.
+     * @param {number} bite The next byte read from the stream.
+     * @return {?(number|!Array.&lt;number>)} The next code point(s)
+     *     decoded, or null if not enough data exists in the input
+     *     stream to decode a complete code point.
+     */
+    this.handler = function(stream, bite) {
+      // 1. If byte is end-of-stream and Big5 lead is not 0x00, set
+      // Big5 lead to 0x00 and return error.
+      if (bite === end_of_stream &amp;&amp; Big5_lead !== 0x00) {
+        Big5_lead = 0x00;
+        return decoderError(fatal);
+      }
+
+      // 2. If byte is end-of-stream and Big5 lead is 0x00, return
+      // finished.
+      if (bite === end_of_stream &amp;&amp; Big5_lead === 0x00)
+        return finished;
+
+      // 3. If Big5 lead is not 0x00, let lead be Big5 lead, let
+      // pointer be null, set Big5 lead to 0x00, and then run these
+      // substeps:
+      if (Big5_lead !== 0x00) {
+        var lead = Big5_lead;
+        var pointer = null;
+        Big5_lead = 0x00;
+
+        // 1. Let offset be 0x40 if byte is less than 0x7F and 0x62
+        // otherwise.
+        var offset = bite &lt; 0x7F ? 0x40 : 0x62;
+
+        // 2. If byte is in the range 0x40 to 0x7E, inclusive, or 0xA1
+        // to 0xFE, inclusive, set pointer to (lead − 0x81) × 157 +
+        // (byte − offset).
+        if (inRange(bite, 0x40, 0x7E) || inRange(bite, 0xA1, 0xFE))
+          pointer = (lead - 0x81) * 157 + (bite - offset);
+
+        // 3. If there is a row in the table below whose first column
+        // is pointer, return the two code points listed in its second
+        // column
+        // Pointer | Code points
+        // --------+--------------
+        // 1133    | U+00CA U+0304
+        // 1135    | U+00CA U+030C
+        // 1164    | U+00EA U+0304
+        // 1166    | U+00EA U+030C
+        switch (pointer) {
+          case 1133: return [0x00CA, 0x0304];
+          case 1135: return [0x00CA, 0x030C];
+          case 1164: return [0x00EA, 0x0304];
+          case 1166: return [0x00EA, 0x030C];
+        }
+
+        // 4. Let code point be null if pointer is null and the index
+        // code point for pointer in index Big5 otherwise.
+        var code_point = (pointer === null) ? null :
+            indexCodePointFor(pointer, index('big5'));
+
+        // 5. If code point is null and byte is an ASCII byte, prepend
+        // byte to stream.
+        if (code_point === null &amp;&amp; isASCIIByte(bite))
+          stream.prepend(bite);
+
+        // 6. If code point is null, return error.
+        if (code_point === null)
+          return decoderError(fatal);
+
+        // 7. Return a code point whose value is code point.
+        return code_point;
+      }
+
+      // 4. If byte is an ASCII byte, return a code point whose value
+      // is byte.
+      if (isASCIIByte(bite))
+        return bite;
+
+      // 5. If byte is in the range 0x81 to 0xFE, inclusive, set Big5
+      // lead to byte and return continue.
+      if (inRange(bite, 0x81, 0xFE)) {
+        Big5_lead = bite;
+        return null;
+      }
+
+      // 6. Return error.
+      return decoderError(fatal);
+    };
+  }
+
+  // 12.1.2 Big5 encoder
+  /**
+   * @constructor
+   * @implements {Encoder}
+   * @param {{fatal: boolean}} options
+   */
+  function Big5Encoder(options) {
+    var fatal = options.fatal;
+    /**
+     * @param {Stream} stream Input stream.
+     * @param {number} code_point Next code point read from the stream.
+     * @return {(number|!Array.&lt;number>)} Byte(s) to emit.
+     */
+    this.handler = function(stream, code_point) {
+      // 1. If code point is end-of-stream, return finished.
+      if (code_point === end_of_stream)
+        return finished;
+
+      // 2. If code point is an ASCII code point, return a byte whose
+      // value is code point.
+      if (isASCIICodePoint(code_point))
+        return code_point;
+
+      // 3. Let pointer be the index Big5 pointer for code point.
+      var pointer = indexBig5PointerFor(code_point);
+
+      // 4. If pointer is null, return error with code point.
+      if (pointer === null)
+        return encoderError(code_point);
+
+      // 5. Let lead be floor(pointer / 157) + 0x81.
+      var lead = floor(pointer / 157) + 0x81;
+
+      // 6. If lead is less than 0xA1, return error with code point.
+      if (lead &lt; 0xA1)
+        return encoderError(code_point);
+
+      // 7. Let trail be pointer % 157.
+      var trail = pointer % 157;
+
+      // 8. Let offset be 0x40 if trail is less than 0x3F and 0x62
+      // otherwise.
+      var offset = trail &lt; 0x3F ? 0x40 : 0x62;
+
+      // Return two bytes whose values are lead and trail + offset.
+      return [lead, trail + offset];
+    };
+  }
+
+  /** @param {{fatal: boolean}} options */
+  encoders['Big5'] = function(options) {
+    return new Big5Encoder(options);
+  };
+  /** @param {{fatal: boolean}} options */
+  decoders['Big5'] = function(options) {
+    return new Big5Decoder(options);
+  };
+
+
+  //
+  // 13. Legacy multi-byte Japanese encodings
+  //
+
+  // 13.1 euc-jp
+
+  // 13.1.1 euc-jp decoder
+  /**
+   * @constructor
+   * @implements {Decoder}
+   * @param {{fatal: boolean}} options
+   */
+  function EUCJPDecoder(options) {
+    var fatal = options.fatal;
+
+    // euc-jp's decoder has an associated euc-jp jis0212 flag
+    // (initially unset) and euc-jp lead (initially 0x00).
+    var /** @type {boolean} */ eucjp_jis0212_flag = false,
+        /** @type {number} */ eucjp_lead = 0x00;
+
+    /**
+     * @param {Stream} stream The stream of bytes being decoded.
+     * @param {number} bite The next byte read from the stream.
+     * @return {?(number|!Array.&lt;number>)} The next code point(s)
+     *     decoded, or null if not enough data exists in the input
+     *     stream to decode a complete code point.
+     */
+    this.handler = function(stream, bite) {
+      // 1. If byte is end-of-stream and euc-jp lead is not 0x00, set
+      // euc-jp lead to 0x00, and return error.
+      if (bite === end_of_stream &amp;&amp; eucjp_lead !== 0x00) {
+        eucjp_lead = 0x00;
+        return decoderError(fatal);
+      }
+
+      // 2. If byte is end-of-stream and euc-jp lead is 0x00, return
+      // finished.
+      if (bite === end_of_stream &amp;&amp; eucjp_lead === 0x00)
+        return finished;
+
+      // 3. If euc-jp lead is 0x8E and byte is in the range 0xA1 to
+      // 0xDF, inclusive, set euc-jp lead to 0x00 and return a code
+      // point whose value is 0xFF61 − 0xA1 + byte.
+      if (eucjp_lead === 0x8E &amp;&amp; inRange(bite, 0xA1, 0xDF)) {
+        eucjp_lead = 0x00;
+        return 0xFF61 - 0xA1 + bite;
+      }
+
+      // 4. If euc-jp lead is 0x8F and byte is in the range 0xA1 to
+      // 0xFE, inclusive, set the euc-jp jis0212 flag, set euc-jp lead
+      // to byte, and return continue.
+      if (eucjp_lead === 0x8F &amp;&amp; inRange(bite, 0xA1, 0xFE)) {
+        eucjp_jis0212_flag = true;
+        eucjp_lead = bite;
+        return null;
+      }
+
+      // 5. If euc-jp lead is not 0x00, let lead be euc-jp lead, set
+      // euc-jp lead to 0x00, and run these substeps:
+      if (eucjp_lead !== 0x00) {
+        var lead = eucjp_lead;
+        eucjp_lead = 0x00;
+
+        // 1. Let code point be null.
+        var code_point = null;
+
+        // 2. If lead and byte are both in the range 0xA1 to 0xFE,
+        // inclusive, set code point to the index code point for (lead
+        // − 0xA1) × 94 + byte − 0xA1 in index jis0208 if the euc-jp
+        // jis0212 flag is unset and in index jis0212 otherwise.
+        if (inRange(lead, 0xA1, 0xFE) &amp;&amp; inRange(bite, 0xA1, 0xFE)) {
+          code_point = indexCodePointFor(
+            (lead - 0xA1) * 94 + (bite - 0xA1),
+            index(!eucjp_jis0212_flag ? 'jis0208' : 'jis0212'));
+        }
+
+        // 3. Unset the euc-jp jis0212 flag.
+        eucjp_jis0212_flag = false;
+
+        // 4. If byte is not in the range 0xA1 to 0xFE, inclusive,
+        // prepend byte to stream.
+        if (!inRange(bite, 0xA1, 0xFE))
+          stream.prepend(bite);
+
+        // 5. If code point is null, return error.
+        if (code_point === null)
+          return decoderError(fatal);
+
+        // 6. Return a code point whose value is code point.
+        return code_point;
+      }
+
+      // 6. If byte is an ASCII byte, return a code point whose value
+      // is byte.
+      if (isASCIIByte(bite))
+        return bite;
+
+      // 7. If byte is 0x8E, 0x8F, or in the range 0xA1 to 0xFE,
+      // inclusive, set euc-jp lead to byte and return continue.
+      if (bite === 0x8E || bite === 0x8F || inRange(bite, 0xA1, 0xFE)) {
+        eucjp_lead = bite;
+        return null;
+      }
+
+      // 8. Return error.
+      return decoderError(fatal);
+    };
+  }
+
+  // 13.1.2 euc-jp encoder
+  /**
+   * @constructor
+   * @implements {Encoder}
+   * @param {{fatal: boolean}} options
+   */
+  function EUCJPEncoder(options) {
+    var fatal = options.fatal;
+    /**
+     * @param {Stream} stream Input stream.
+     * @param {number} code_point Next code point read from the stream.
+     * @return {(number|!Array.&lt;number>)} Byte(s) to emit.
+     */
+    this.handler = function(stream, code_point) {
+      // 1. If code point is end-of-stream, return finished.
+      if (code_point === end_of_stream)
+        return finished;
+
+      // 2. If code point is an ASCII code point, return a byte whose
+      // value is code point.
+      if (isASCIICodePoint(code_point))
+        return code_point;
+
+      // 3. If code point is U+00A5, return byte 0x5C.
+      if (code_point === 0x00A5)
+        return 0x5C;
+
+      // 4. If code point is U+203E, return byte 0x7E.
+      if (code_point === 0x203E)
+        return 0x7E;
+
+      // 5. If code point is in the range U+FF61 to U+FF9F, inclusive,
+      // return two bytes whose values are 0x8E and code point −
+      // 0xFF61 + 0xA1.
+      if (inRange(code_point, 0xFF61, 0xFF9F))
+        return [0x8E, code_point - 0xFF61 + 0xA1];
+
+      // 6. If code point is U+2212, set it to U+FF0D.
+      if (code_point === 0x2212)
+        code_point = 0xFF0D;
+
+      // 7. Let pointer be the index pointer for code point in index
+      // jis0208.
+      var pointer = indexPointerFor(code_point, index('jis0208'));
+
+      // 8. If pointer is null, return error with code point.
+      if (pointer === null)
+        return encoderError(code_point);
+
+      // 9. Let lead be floor(pointer / 94) + 0xA1.
+      var lead = floor(pointer / 94) + 0xA1;
+
+      // 10. Let trail be pointer % 94 + 0xA1.
+      var trail = pointer % 94 + 0xA1;
+
+      // 11. Return two bytes whose values are lead and trail.
+      return [lead, trail];
+    };
+  }
+
+  /** @param {{fatal: boolean}} options */
+  encoders['EUC-JP'] = function(options) {
+    return new EUCJPEncoder(options);
+  };
+  /** @param {{fatal: boolean}} options */
+  decoders['EUC-JP'] = function(options) {
+    return new EUCJPDecoder(options);
+  };
+
+  // 13.2 iso-2022-jp
+
+  // 13.2.1 iso-2022-jp decoder
+  /**
+   * @constructor
+   * @implements {Decoder}
+   * @param {{fatal: boolean}} options
+   */
+  function ISO2022JPDecoder(options) {
+    var fatal = options.fatal;
+    /** @enum */
+    var states = {
+      ASCII: 0,
+      Roman: 1,
+      Katakana: 2,
+      LeadByte: 3,
+      TrailByte: 4,
+      EscapeStart: 5,
+      Escape: 6
+    };
+    // iso-2022-jp's decoder has an associated iso-2022-jp decoder
+    // state (initially ASCII), iso-2022-jp decoder output state
+    // (initially ASCII), iso-2022-jp lead (initially 0x00), and
+    // iso-2022-jp output flag (initially unset).
+    var /** @type {number} */ iso2022jp_decoder_state = states.ASCII,
+        /** @type {number} */ iso2022jp_decoder_output_state = states.ASCII,
+        /** @type {number} */ iso2022jp_lead = 0x00,
+        /** @type {boolean} */ iso2022jp_output_flag = false;
+    /**
+     * @param {Stream} stream The stream of bytes being decoded.
+     * @param {number} bite The next byte read from the stream.
+     * @return {?(number|!Array.&lt;number>)} The next code point(s)
+     *     decoded, or null if not enough data exists in the input
+     *     stream to decode a complete code point.
+     */
+    this.handler = function(stream, bite) {
+      // switching on iso-2022-jp decoder state:
+      switch (iso2022jp_decoder_state) {
+      default:
+      case states.ASCII:
+        // ASCII
+        // Based on byte:
+
+        // 0x1B
+        if (bite === 0x1B) {
+          // Set iso-2022-jp decoder state to escape start and return
+          // continue.
+          iso2022jp_decoder_state = states.EscapeStart;
+          return null;
+        }
+
+        // 0x00 to 0x7F, excluding 0x0E, 0x0F, and 0x1B
+        if (inRange(bite, 0x00, 0x7F) &amp;&amp; bite !== 0x0E
+            &amp;&amp; bite !== 0x0F &amp;&amp; bite !== 0x1B) {
+          // Unset the iso-2022-jp output flag and return a code point
+          // whose value is byte.
+          iso2022jp_output_flag = false;
+          return bite;
+        }
+
+        // end-of-stream
+        if (bite === end_of_stream) {
+          // Return finished.
+          return finished;
+        }
+
+        // Otherwise
+        // Unset the iso-2022-jp output flag and return error.
+        iso2022jp_output_flag = false;
+        return decoderError(fatal);
+
+      case states.Roman:
+        // Roman
+        // Based on byte:
+
+        // 0x1B
+        if (bite === 0x1B) {
+          // Set iso-2022-jp decoder state to escape start and return
+          // continue.
+          iso2022jp_decoder_state = states.EscapeStart;
+          return null;
+        }
+
+        // 0x5C
+        if (bite === 0x5C) {
+          // Unset the iso-2022-jp output flag and return code point
+          // U+00A5.
+          iso2022jp_output_flag = false;
+          return 0x00A5;
+        }
+
+        // 0x7E
+        if (bite === 0x7E) {
+          // Unset the iso-2022-jp output flag and return code point
+          // U+203E.
+          iso2022jp_output_flag = false;
+          return 0x203E;
+        }
+
+        // 0x00 to 0x7F, excluding 0x0E, 0x0F, 0x1B, 0x5C, and 0x7E
+        if (inRange(bite, 0x00, 0x7F) &amp;&amp; bite !== 0x0E &amp;&amp; bite !== 0x0F
+            &amp;&amp; bite !== 0x1B &amp;&amp; bite !== 0x5C &amp;&amp; bite !== 0x7E) {
+          // Unset the iso-2022-jp output flag and return a code point
+          // whose value is byte.
+          iso2022jp_output_flag = false;
+          return bite;
+        }
+
+        // end-of-stream
+        if (bite === end_of_stream) {
+          // Return finished.
+          return finished;
+        }
+
+        // Otherwise
+        // Unset the iso-2022-jp output flag and return error.
+        iso2022jp_output_flag = false;
+        return decoderError(fatal);
+
+      case states.Katakana:
+        // Katakana
+        // Based on byte:
+
+        // 0x1B
+        if (bite === 0x1B) {
+          // Set iso-2022-jp decoder state to escape start and return
+          // continue.
+          iso2022jp_decoder_state = states.EscapeStart;
+          return null;
+        }
+
+        // 0x21 to 0x5F
+        if (inRange(bite, 0x21, 0x5F)) {
+          // Unset the iso-2022-jp output flag and return a code point
+          // whose value is 0xFF61 − 0x21 + byte.
+          iso2022jp_output_flag = false;
+          return 0xFF61 - 0x21 + bite;
+        }
+
+        // end-of-stream
+        if (bite === end_of_stream) {
+          // Return finished.
+          return finished;
+        }
+
+        // Otherwise
+        // Unset the iso-2022-jp output flag and return error.
+        iso2022jp_output_flag = false;
+        return decoderError(fatal);
+
+      case states.LeadByte:
+        // Lead byte
+        // Based on byte:
+
+        // 0x1B
+        if (bite === 0x1B) {
+          // Set iso-2022-jp decoder state to escape start and return
+          // continue.
+          iso2022jp_decoder_state = states.EscapeStart;
+          return null;
+        }
+
+        // 0x21 to 0x7E
+        if (inRange(bite, 0x21, 0x7E)) {
+          // Unset the iso-2022-jp output flag, set iso-2022-jp lead
+          // to byte, iso-2022-jp decoder state to trail byte, and
+          // return continue.
+          iso2022jp_output_flag = false;
+          iso2022jp_lead = bite;
+          iso2022jp_decoder_state = states.TrailByte;
+          return null;
+        }
+
+        // end-of-stream
+        if (bite === end_of_stream) {
+          // Return finished.
+          return finished;
+        }
+
+        // Otherwise
+        // Unset the iso-2022-jp output flag and return error.
+        iso2022jp_output_flag = false;
+        return decoderError(fatal);
+
+      case states.TrailByte:
+        // Trail byte
+        // Based on byte:
+
+        // 0x1B
+        if (bite === 0x1B) {
+          // Set iso-2022-jp decoder state to escape start and return
+          // continue.
+          iso2022jp_decoder_state = states.EscapeStart;
+          return decoderError(fatal);
+        }
+
+        // 0x21 to 0x7E
+        if (inRange(bite, 0x21, 0x7E)) {
+          // 1. Set the iso-2022-jp decoder state to lead byte.
+          iso2022jp_decoder_state = states.LeadByte;
+
+          // 2. Let pointer be (iso-2022-jp lead − 0x21) × 94 + byte − 0x21.
+          var pointer = (iso2022jp_lead - 0x21) * 94 + bite - 0x21;
+
+          // 3. Let code point be the index code point for pointer in
+          // index jis0208.
+          var code_point = indexCodePointFor(pointer, index('jis0208'));
+
+          // 4. If code point is null, return error.
+          if (code_point === null)
+            return decoderError(fatal);
+
+          // 5. Return a code point whose value is code point.
+          return code_point;
+        }
+
+        // end-of-stream
+        if (bite === end_of_stream) {
+          // Set the iso-2022-jp decoder state to lead byte, prepend
+          // byte to stream, and return error.
+          iso2022jp_decoder_state = states.LeadByte;
+          stream.prepend(bite);
+          return decoderError(fatal);
+        }
+
+        // Otherwise
+        // Set iso-2022-jp decoder state to lead byte and return
+        // error.
+        iso2022jp_decoder_state = states.LeadByte;
+        return decoderError(fatal);
+
+      case states.EscapeStart:
+        // Escape start
+
+        // 1. If byte is either 0x24 or 0x28, set iso-2022-jp lead to
+        // byte, iso-2022-jp decoder state to escape, and return
+        // continue.
+        if (bite === 0x24 || bite === 0x28) {
+          iso2022jp_lead = bite;
+          iso2022jp_decoder_state = states.Escape;
+          return null;
+        }
+
+        // 2. Prepend byte to stream.
+        stream.prepend(bite);
+
+        // 3. Unset the iso-2022-jp output flag, set iso-2022-jp
+        // decoder state to iso-2022-jp decoder output state, and
+        // return error.
+        iso2022jp_output_flag = false;
+        iso2022jp_decoder_state = iso2022jp_decoder_output_state;
+        return decoderError(fatal);
+
+      case states.Escape:
+        // Escape
+
+        // 1. Let lead be iso-2022-jp lead and set iso-2022-jp lead to
+        // 0x00.
+        var lead = iso2022jp_lead;
+        iso2022jp_lead = 0x00;
+
+        // 2. Let state be null.
+        var state = null;
+
+        // 3. If lead is 0x28 and byte is 0x42, set state to ASCII.
+        if (lead === 0x28 &amp;&amp; bite === 0x42)
+          state = states.ASCII;
+
+        // 4. If lead is 0x28 and byte is 0x4A, set state to Roman.
+        if (lead === 0x28 &amp;&amp; bite === 0x4A)
+          state = states.Roman;
+
+        // 5. If lead is 0x28 and byte is 0x49, set state to Katakana.
+        if (lead === 0x28 &amp;&amp; bite === 0x49)
+          state = states.Katakana;
+
+        // 6. If lead is 0x24 and byte is either 0x40 or 0x42, set
+        // state to lead byte.
+        if (lead === 0x24 &amp;&amp; (bite === 0x40 || bite === 0x42))
+          state = states.LeadByte;
+
+        // 7. If state is non-null, run these substeps:
+        if (state !== null) {
+          // 1. Set iso-2022-jp decoder state and iso-2022-jp decoder
+          // output state to states.
+          iso2022jp_decoder_state = iso2022jp_decoder_state = state;
+
+          // 2. Let output flag be the iso-2022-jp output flag.
+          var output_flag = iso2022jp_output_flag;
+
+          // 3. Set the iso-2022-jp output flag.
+          iso2022jp_output_flag = true;
+
+          // 4. Return continue, if output flag is unset, and error
+          // otherwise.
+          return !output_flag ? null : decoderError(fatal);
+        }
+
+        // 8. Prepend lead and byte to stream.
+        stream.prepend([lead, bite]);
+
+        // 9. Unset the iso-2022-jp output flag, set iso-2022-jp
+        // decoder state to iso-2022-jp decoder output state and
+        // return error.
+        iso2022jp_output_flag = false;
+        iso2022jp_decoder_state = iso2022jp_decoder_output_state;
+        return decoderError(fatal);
+      }
+    };
+  }
+
+  // 13.2.2 iso-2022-jp encoder
+  /**
+   * @constructor
+   * @implements {Encoder}
+   * @param {{fatal: boolean}} options
+   */
+  function ISO2022JPEncoder(options) {
+    var fatal = options.fatal;
+    // iso-2022-jp's encoder has an associated iso-2022-jp encoder
+    // state which is one of ASCII, Roman, and jis0208 (initially
+    // ASCII).
+    /** @enum */
+    var states = {
+      ASCII: 0,
+      Roman: 1,
+      jis0208: 2
+    };
+    var /** @type {number} */ iso2022jp_state = states.ASCII;
+    /**
+     * @param {Stream} stream Input stream.
+     * @param {number} code_point Next code point read from the stream.
+     * @return {(number|!Array.&lt;number>)} Byte(s) to emit.
+     */
+    this.handler = function(stream, code_point) {
+      // 1. If code point is end-of-stream and iso-2022-jp encoder
+      // state is not ASCII, prepend code point to stream, set
+      // iso-2022-jp encoder state to ASCII, and return three bytes
+      // 0x1B 0x28 0x42.
+      if (code_point === end_of_stream &amp;&amp;
+          iso2022jp_state !== states.ASCII) {
+        stream.prepend(code_point);
+        iso2022jp_state = states.ASCII;
+        return [0x1B, 0x28, 0x42];
+      }
+
+      // 2. If code point is end-of-stream and iso-2022-jp encoder
+      // state is ASCII, return finished.
+      if (code_point === end_of_stream &amp;&amp; iso2022jp_state === states.ASCII)
+        return finished;
+
+      // 3. If ISO-2022-JP encoder state is ASCII or Roman, and code
+      // point is U+000E, U+000F, or U+001B, return error with U+FFFD.
+      if ((iso2022jp_state === states.ASCII ||
+           iso2022jp_state === states.Roman) &amp;&amp;
+          (code_point === 0x000E || code_point === 0x000F ||
+           code_point === 0x001B)) {
+        return encoderError(0xFFFD);
+      }
+
+      // 4. If iso-2022-jp encoder state is ASCII and code point is an
+      // ASCII code point, return a byte whose value is code point.
+      if (iso2022jp_state === states.ASCII &amp;&amp;
+          isASCIICodePoint(code_point))
+        return code_point;
+
+      // 5. If iso-2022-jp encoder state is Roman and code point is an
+      // ASCII code point, excluding U+005C and U+007E, or is U+00A5
+      // or U+203E, run these substeps:
+      if (iso2022jp_state === states.Roman &amp;&amp;
+          ((isASCIICodePoint(code_point) &amp;&amp;
+           code_point !== 0x005C &amp;&amp; code_point !== 0x007E) ||
+          (code_point == 0x00A5 || code_point == 0x203E))) {
+
+        // 1. If code point is an ASCII code point, return a byte
+        // whose value is code point.
+        if (isASCIICodePoint(code_point))
+          return code_point;
+
+        // 2. If code point is U+00A5, return byte 0x5C.
+        if (code_point === 0x00A5)
+          return 0x5C;
+
+        // 3. If code point is U+203E, return byte 0x7E.
+        if (code_point === 0x203E)
+          return 0x7E;
+      }
+
+      // 6. If code point is an ASCII code point, and iso-2022-jp
+      // encoder state is not ASCII, prepend code point to stream, set
+      // iso-2022-jp encoder state to ASCII, and return three bytes
+      // 0x1B 0x28 0x42.
+      if (isASCIICodePoint(code_point) &amp;&amp;
+          iso2022jp_state !== states.ASCII) {
+        stream.prepend(code_point);
+        iso2022jp_state = states.ASCII;
+        return [0x1B, 0x28, 0x42];
+      }
+
+      // 7. If code point is either U+00A5 or U+203E, and iso-2022-jp
+      // encoder state is not Roman, prepend code point to stream, set
+      // iso-2022-jp encoder state to Roman, and return three bytes
+      // 0x1B 0x28 0x4A.
+      if ((code_point === 0x00A5 || code_point === 0x203E) &amp;&amp;
+          iso2022jp_state !== states.Roman) {
+        stream.prepend(code_point);
+        iso2022jp_state = states.Roman;
+        return [0x1B, 0x28, 0x4A];
+      }
+
+      // 8. If code point is U+2212, set it to U+FF0D.
+      if (code_point === 0x2212)
+        code_point = 0xFF0D;
+
+      // 9. Let pointer be the index pointer for code point in index
+      // jis0208.
+      var pointer = indexPointerFor(code_point, index('jis0208'));
+
+      // 10. If pointer is null, return error with code point.
+      if (pointer === null)
+        return encoderError(code_point);
+
+      // 11. If iso-2022-jp encoder state is not jis0208, prepend code
+      // point to stream, set iso-2022-jp encoder state to jis0208,
+      // and return three bytes 0x1B 0x24 0x42.
+      if (iso2022jp_state !== states.jis0208) {
+        stream.prepend(code_point);
+        iso2022jp_state = states.jis0208;
+        return [0x1B, 0x24, 0x42];
+      }
+
+      // 12. Let lead be floor(pointer / 94) + 0x21.
+      var lead = floor(pointer / 94) + 0x21;
+
+      // 13. Let trail be pointer % 94 + 0x21.
+      var trail = pointer % 94 + 0x21;
+
+      // 14. Return two bytes whose values are lead and trail.
+      return [lead, trail];
+    };
+  }
+
+  /** @param {{fatal: boolean}} options */
+  encoders['ISO-2022-JP'] = function(options) {
+    return new ISO2022JPEncoder(options);
+  };
+  /** @param {{fatal: boolean}} options */
+  decoders['ISO-2022-JP'] = function(options) {
+    return new ISO2022JPDecoder(options);
+  };
+
+  // 13.3 Shift_JIS
+
+  // 13.3.1 Shift_JIS decoder
+  /**
+   * @constructor
+   * @implements {Decoder}
+   * @param {{fatal: boolean}} options
+   */
+  function ShiftJISDecoder(options) {
+    var fatal = options.fatal;
+    // Shift_JIS's decoder has an associated Shift_JIS lead (initially
+    // 0x00).
+    var /** @type {number} */ Shift_JIS_lead = 0x00;
+    /**
+     * @param {Stream} stream The stream of bytes being decoded.
+     * @param {number} bite The next byte read from the stream.
+     * @return {?(number|!Array.&lt;number>)} The next code point(s)
+     *     decoded, or null if not enough data exists in the input
+     *     stream to decode a complete code point.
+     */
+    this.handler = function(stream, bite) {
+      // 1. If byte is end-of-stream and Shift_JIS lead is not 0x00,
+      // set Shift_JIS lead to 0x00 and return error.
+      if (bite === end_of_stream &amp;&amp; Shift_JIS_lead !== 0x00) {
+        Shift_JIS_lead = 0x00;
+        return decoderError(fatal);
+      }
+
+      // 2. If byte is end-of-stream and Shift_JIS lead is 0x00,
+      // return finished.
+      if (bite === end_of_stream &amp;&amp; Shift_JIS_lead === 0x00)
+        return finished;
+
+      // 3. If Shift_JIS lead is not 0x00, let lead be Shift_JIS lead,
+      // let pointer be null, set Shift_JIS lead to 0x00, and then run
+      // these substeps:
+      if (Shift_JIS_lead !== 0x00) {
+        var lead = Shift_JIS_lead;
+        var pointer = null;
+        Shift_JIS_lead = 0x00;
+
+        // 1. Let offset be 0x40, if byte is less than 0x7F, and 0x41
+        // otherwise.
+        var offset = (bite &lt; 0x7F) ? 0x40 : 0x41;
+
+        // 2. Let lead offset be 0x81, if lead is less than 0xA0, and
+        // 0xC1 otherwise.
+        var lead_offset = (lead &lt; 0xA0) ? 0x81 : 0xC1;
+
+        // 3. If byte is in the range 0x40 to 0x7E, inclusive, or 0x80
+        // to 0xFC, inclusive, set pointer to (lead − lead offset) ×
+        // 188 + byte − offset.
+        if (inRange(bite, 0x40, 0x7E) || inRange(bite, 0x80, 0xFC))
+          pointer = (lead - lead_offset) * 188 + bite - offset;
+
+        // 4. If pointer is in the range 8836 to 10715, inclusive,
+        // return a code point whose value is 0xE000 − 8836 + pointer.
+        if (inRange(pointer, 8836, 10715))
+          return 0xE000 - 8836 + pointer;
+
+        // 5. Let code point be null, if pointer is null, and the
+        // index code point for pointer in index jis0208 otherwise.
+        var code_point = (pointer === null) ? null :
+              indexCodePointFor(pointer, index('jis0208'));
+
+        // 6. If code point is null and byte is an ASCII byte, prepend
+        // byte to stream.
+        if (code_point === null &amp;&amp; isASCIIByte(bite))
+          stream.prepend(bite);
+
+        // 7. If code point is null, return error.
+        if (code_point === null)
+          return decoderError(fatal);
+
+        // 8. Return a code point whose value is code point.
+        return code_point;
+      }
+
+      // 4. If byte is an ASCII byte or 0x80, return a code point
+      // whose value is byte.
+      if (isASCIIByte(bite) || bite === 0x80)
+        return bite;
+
+      // 5. If byte is in the range 0xA1 to 0xDF, inclusive, return a
+      // code point whose value is 0xFF61 − 0xA1 + byte.
+      if (inRange(bite, 0xA1, 0xDF))
+        return 0xFF61 - 0xA1 + bite;
+
+      // 6. If byte is in the range 0x81 to 0x9F, inclusive, or 0xE0
+      // to 0xFC, inclusive, set Shift_JIS lead to byte and return
+      // continue.
+      if (inRange(bite, 0x81, 0x9F) || inRange(bite, 0xE0, 0xFC)) {
+        Shift_JIS_lead = bite;
+        return null;
+      }
+
+      // 7. Return error.
+      return decoderError(fatal);
+    };
+  }
+
+  // 13.3.2 Shift_JIS encoder
+  /**
+   * @constructor
+   * @implements {Encoder}
+   * @param {{fatal: boolean}} options
+   */
+  function ShiftJISEncoder(options) {
+    var fatal = options.fatal;
+    /**
+     * @param {Stream} stream Input stream.
+     * @param {number} code_point Next code point read from the stream.
+     * @return {(number|!Array.&lt;number>)} Byte(s) to emit.
+     */
+    this.handler = function(stream, code_point) {
+      // 1. If code point is end-of-stream, return finished.
+      if (code_point === end_of_stream)
+        return finished;
+
+      // 2. If code point is an ASCII code point or U+0080, return a
+      // byte whose value is code point.
+      if (isASCIICodePoint(code_point) || code_point === 0x0080)
+        return code_point;
+
+      // 3. If code point is U+00A5, return byte 0x5C.
+      if (code_point === 0x00A5)
+        return 0x5C;
+
+      // 4. If code point is U+203E, return byte 0x7E.
+      if (code_point === 0x203E)
+        return 0x7E;
+
+      // 5. If code point is in the range U+FF61 to U+FF9F, inclusive,
+      // return a byte whose value is code point − 0xFF61 + 0xA1.
+      if (inRange(code_point, 0xFF61, 0xFF9F))
+        return code_point - 0xFF61 + 0xA1;
+
+      // 6. If code point is U+2212, set it to U+FF0D.
+      if (code_point === 0x2212)
+        code_point = 0xFF0D;
+
+      // 7. Let pointer be the index Shift_JIS pointer for code point.
+      var pointer = indexShiftJISPointerFor(code_point);
+
+      // 8. If pointer is null, return error with code point.
+      if (pointer === null)
+        return encoderError(code_point);
+
+      // 9. Let lead be floor(pointer / 188).
+      var lead = floor(pointer / 188);
+
+      // 10. Let lead offset be 0x81, if lead is less than 0x1F, and
+      // 0xC1 otherwise.
+      var lead_offset = (lead &lt; 0x1F) ? 0x81 : 0xC1;
+
+      // 11. Let trail be pointer % 188.
+      var trail = pointer % 188;
+
+      // 12. Let offset be 0x40, if trail is less than 0x3F, and 0x41
+      // otherwise.
+      var offset = (trail &lt; 0x3F) ? 0x40 : 0x41;
+
+      // 13. Return two bytes whose values are lead + lead offset and
+      // trail + offset.
+      return [lead + lead_offset, trail + offset];
+    };
+  }
+
+  /** @param {{fatal: boolean}} options */
+  encoders['Shift_JIS'] = function(options) {
+    return new ShiftJISEncoder(options);
+  };
+  /** @param {{fatal: boolean}} options */
+  decoders['Shift_JIS'] = function(options) {
+    return new ShiftJISDecoder(options);
+  };
+
+  //
+  // 14. Legacy multi-byte Korean encodings
+  //
+
+  // 14.1 euc-kr
+
+  // 14.1.1 euc-kr decoder
+  /**
+   * @constructor
+   * @implements {Decoder}
+   * @param {{fatal: boolean}} options
+   */
+  function EUCKRDecoder(options) {
+    var fatal = options.fatal;
+
+    // euc-kr's decoder has an associated euc-kr lead (initially 0x00).
+    var /** @type {number} */ euckr_lead = 0x00;
+    /**
+     * @param {Stream} stream The stream of bytes being decoded.
+     * @param {number} bite The next byte read from the stream.
+     * @return {?(number|!Array.&lt;number>)} The next code point(s)
+     *     decoded, or null if not enough data exists in the input
+     *     stream to decode a complete code point.
+     */
+    this.handler = function(stream, bite) {
+      // 1. If byte is end-of-stream and euc-kr lead is not 0x00, set
+      // euc-kr lead to 0x00 and return error.
+      if (bite === end_of_stream &amp;&amp; euckr_lead !== 0) {
+        euckr_lead = 0x00;
+        return decoderError(fatal);
+      }
+
+      // 2. If byte is end-of-stream and euc-kr lead is 0x00, return
+      // finished.
+      if (bite === end_of_stream &amp;&amp; euckr_lead === 0)
+        return finished;
+
+      // 3. If euc-kr lead is not 0x00, let lead be euc-kr lead, let
+      // pointer be null, set euc-kr lead to 0x00, and then run these
+      // substeps:
+      if (euckr_lead !== 0x00) {
+        var lead = euckr_lead;
+        var pointer = null;
+        euckr_lead = 0x00;
+
+        // 1. If byte is in the range 0x41 to 0xFE, inclusive, set
+        // pointer to (lead − 0x81) × 190 + (byte − 0x41).
+        if (inRange(bite, 0x41, 0xFE))
+          pointer = (lead - 0x81) * 190 + (bite - 0x41);
+
+        // 2. Let code point be null, if pointer is null, and the
+        // index code point for pointer in index euc-kr otherwise.
+        var code_point = (pointer === null)
+              ? null : indexCodePointFor(pointer, index('euc-kr'));
+
+        // 3. If code point is null and byte is an ASCII byte, prepend
+        // byte to stream.
+        if (pointer === null &amp;&amp; isASCIIByte(bite))
+          stream.prepend(bite);
+
+        // 4. If code point is null, return error.
+        if (code_point === null)
+          return decoderError(fatal);
+
+        // 5. Return a code point whose value is code point.
+        return code_point;
+      }
+
+      // 4. If byte is an ASCII byte, return a code point whose value
+      // is byte.
+      if (isASCIIByte(bite))
+        return bite;
+
+      // 5. If byte is in the range 0x81 to 0xFE, inclusive, set
+      // euc-kr lead to byte and return continue.
+      if (inRange(bite, 0x81, 0xFE)) {
+        euckr_lead = bite;
+        return null;
+      }
+
+      // 6. Return error.
+      return decoderError(fatal);
+    };
+  }
+
+  // 14.1.2 euc-kr encoder
+  /**
+   * @constructor
+   * @implements {Encoder}
+   * @param {{fatal: boolean}} options
+   */
+  function EUCKREncoder(options) {
+    var fatal = options.fatal;
+    /**
+     * @param {Stream} stream Input stream.
+     * @param {number} code_point Next code point read from the stream.
+     * @return {(number|!Array.&lt;number>)} Byte(s) to emit.
+     */
+    this.handler = function(stream, code_point) {
+      // 1. If code point is end-of-stream, return finished.
+      if (code_point === end_of_stream)
+        return finished;
+
+      // 2. If code point is an ASCII code point, return a byte whose
+      // value is code point.
+      if (isASCIICodePoint(code_point))
+        return code_point;
+
+      // 3. Let pointer be the index pointer for code point in index
+      // euc-kr.
+      var pointer = indexPointerFor(code_point, index('euc-kr'));
+
+      // 4. If pointer is null, return error with code point.
+      if (pointer === null)
+        return encoderError(code_point);
+
+      // 5. Let lead be floor(pointer / 190) + 0x81.
+      var lead = floor(pointer / 190) + 0x81;
+
+      // 6. Let trail be pointer % 190 + 0x41.
+      var trail = (pointer % 190) + 0x41;
+
+      // 7. Return two bytes whose values are lead and trail.
+      return [lead, trail];
+    };
+  }
+
+  /** @param {{fatal: boolean}} options */
+  encoders['EUC-KR'] = function(options) {
+    return new EUCKREncoder(options);
+  };
+  /** @param {{fatal: boolean}} options */
+  decoders['EUC-KR'] = function(options) {
+    return new EUCKRDecoder(options);
+  };
+
+
+  //
+  // 15. Legacy miscellaneous encodings
+  //
+
+  // 15.1 replacement
+
+  // Not needed - API throws RangeError
+
+  // 15.2 Common infrastructure for utf-16be and utf-16le
+
+  /**
+   * @param {number} code_unit
+   * @param {boolean} utf16be
+   * @return {!Array.&lt;number>} bytes
+   */
+  function convertCodeUnitToBytes(code_unit, utf16be) {
+    // 1. Let byte1 be code unit >> 8.
+    var byte1 = code_unit >> 8;
+
+    // 2. Let byte2 be code unit &amp; 0x00FF.
+    var byte2 = code_unit &amp; 0x00FF;
+
+    // 3. Then return the bytes in order:
+        // utf-16be flag is set: byte1, then byte2.
+    if (utf16be)
+      return [byte1, byte2];
+    // utf-16be flag is unset: byte2, then byte1.
+    return [byte2, byte1];
+  }
+
+  // 15.2.1 shared utf-16 decoder
+  /**
+   * @constructor
+   * @implements {Decoder}
+   * @param {boolean} utf16_be True if big-endian, false if little-endian.
+   * @param {{fatal: boolean}} options
+   */
+  function UTF16Decoder(utf16_be, options) {
+    var fatal = options.fatal;
+    var /** @type {?number} */ utf16_lead_byte = null,
+        /** @type {?number} */ utf16_lead_surrogate = null;
+    /**
+     * @param {Stream} stream The stream of bytes being decoded.
+     * @param {number} bite The next byte read from the stream.
+     * @return {?(number|!Array.&lt;number>)} The next code point(s)
+     *     decoded, or null if not enough data exists in the input
+     *     stream to decode a complete code point.
+     */
+    this.handler = function(stream, bite) {
+      // 1. If byte is end-of-stream and either utf-16 lead byte or
+      // utf-16 lead surrogate is not null, set utf-16 lead byte and
+      // utf-16 lead surrogate to null, and return error.
+      if (bite === end_of_stream &amp;&amp; (utf16_lead_byte !== null ||
+                                utf16_lead_surrogate !== null)) {
+        return decoderError(fatal);
+      }
+
+      // 2. If byte is end-of-stream and utf-16 lead byte and utf-16
+      // lead surrogate are null, return finished.
+      if (bite === end_of_stream &amp;&amp; utf16_lead_byte === null &amp;&amp;
+          utf16_lead_surrogate === null) {
+        return finished;
+      }
+
+      // 3. If utf-16 lead byte is null, set utf-16 lead byte to byte
+      // and return continue.
+      if (utf16_lead_byte === null) {
+        utf16_lead_byte = bite;
+        return null;
+      }
+
+      // 4. Let code unit be the result of:
+      var code_unit;
+      if (utf16_be) {
+        // utf-16be decoder flag is set
+        //   (utf-16 lead byte &lt;&lt; 8) + byte.
+        code_unit = (utf16_lead_byte &lt;&lt; 8) + bite;
+      } else {
+        // utf-16be decoder flag is unset
+        //   (byte &lt;&lt; 8) + utf-16 lead byte.
+        code_unit = (bite &lt;&lt; 8) + utf16_lead_byte;
+      }
+      // Then set utf-16 lead byte to null.
+      utf16_lead_byte = null;
+
+      // 5. If utf-16 lead surrogate is not null, let lead surrogate
+      // be utf-16 lead surrogate, set utf-16 lead surrogate to null,
+      // and then run these substeps:
+      if (utf16_lead_surrogate !== null) {
+        var lead_surrogate = utf16_lead_surrogate;
+        utf16_lead_surrogate = null;
+
+        // 1. If code unit is in the range U+DC00 to U+DFFF,
+        // inclusive, return a code point whose value is 0x10000 +
+        // ((lead surrogate − 0xD800) &lt;&lt; 10) + (code unit − 0xDC00).
+        if (inRange(code_unit, 0xDC00, 0xDFFF)) {
+          return 0x10000 + (lead_surrogate - 0xD800) * 0x400 +
+              (code_unit - 0xDC00);
+        }
+
+        // 2. Prepend the sequence resulting of converting code unit
+        // to bytes using utf-16be decoder flag to stream and return
+        // error.
+        stream.prepend(convertCodeUnitToBytes(code_unit, utf16_be));
+        return decoderError(fatal);
+      }
+
+      // 6. If code unit is in the range U+D800 to U+DBFF, inclusive,
+      // set utf-16 lead surrogate to code unit and return continue.
+      if (inRange(code_unit, 0xD800, 0xDBFF)) {
+        utf16_lead_surrogate = code_unit;
+        return null;
+      }
+
+      // 7. If code unit is in the range U+DC00 to U+DFFF, inclusive,
+      // return error.
+      if (inRange(code_unit, 0xDC00, 0xDFFF))
+        return decoderError(fatal);
+
+      // 8. Return code point code unit.
+      return code_unit;
+    };
+  }
+
+  // 15.2.2 shared utf-16 encoder
+  /**
+   * @constructor
+   * @implements {Encoder}
+   * @param {boolean} utf16_be True if big-endian, false if little-endian.
+   * @param {{fatal: boolean}} options
+   */
+  function UTF16Encoder(utf16_be, options) {
+    var fatal = options.fatal;
+    /**
+     * @param {Stream} stream Input stream.
+     * @param {number} code_point Next code point read from the stream.
+     * @return {(number|!Array.&lt;number>)} Byte(s) to emit.
+     */
+    this.handler = function(stream, code_point) {
+      // 1. If code point is end-of-stream, return finished.
+      if (code_point === end_of_stream)
+        return finished;
+
+      // 2. If code point is in the range U+0000 to U+FFFF, inclusive,
+      // return the sequence resulting of converting code point to
+      // bytes using utf-16be encoder flag.
+      if (inRange(code_point, 0x0000, 0xFFFF))
+        return convertCodeUnitToBytes(code_point, utf16_be);
+
+      // 3. Let lead be ((code point − 0x10000) >> 10) + 0xD800,
+      // converted to bytes using utf-16be encoder flag.
+      var lead = convertCodeUnitToBytes(
+        ((code_point - 0x10000) >> 10) + 0xD800, utf16_be);
+
+      // 4. Let trail be ((code point − 0x10000) &amp; 0x3FF) + 0xDC00,
+      // converted to bytes using utf-16be encoder flag.
+      var trail = convertCodeUnitToBytes(
+        ((code_point - 0x10000) &amp; 0x3FF) + 0xDC00, utf16_be);
+
+      // 5. Return a byte sequence of lead followed by trail.
+      return lead.concat(trail);
+    };
+  }
+
+  // 15.3 utf-16be
+  // 15.3.1 utf-16be decoder
+  /** @param {{fatal: boolean}} options */
+  encoders['UTF-16BE'] = function(options) {
+    return new UTF16Encoder(true, options);
+  };
+  // 15.3.2 utf-16be encoder
+  /** @param {{fatal: boolean}} options */
+  decoders['UTF-16BE'] = function(options) {
+    return new UTF16Decoder(true, options);
+  };
+
+  // 15.4 utf-16le
+  // 15.4.1 utf-16le decoder
+  /** @param {{fatal: boolean}} options */
+  encoders['UTF-16LE'] = function(options) {
+    return new UTF16Encoder(false, options);
+  };
+  // 15.4.2 utf-16le encoder
+  /** @param {{fatal: boolean}} options */
+  decoders['UTF-16LE'] = function(options) {
+    return new UTF16Decoder(false, options);
+  };
+
+  // 15.5 x-user-defined
+
+  // 15.5.1 x-user-defined decoder
+  /**
+   * @constructor
+   * @implements {Decoder}
+   * @param {{fatal: boolean}} options
+   */
+  function XUserDefinedDecoder(options) {
+    var fatal = options.fatal;
+    /**
+     * @param {Stream} stream The stream of bytes being decoded.
+     * @param {number} bite The next byte read from the stream.
+     * @return {?(number|!Array.&lt;number>)} The next code point(s)
+     *     decoded, or null if not enough data exists in the input
+     *     stream to decode a complete code point.
+     */
+    this.handler = function(stream, bite) {
+      // 1. If byte is end-of-stream, return finished.
+      if (bite === end_of_stream)
+        return finished;
+
+      // 2. If byte is an ASCII byte, return a code point whose value
+      // is byte.
+      if (isASCIIByte(bite))
+        return bite;
+
+      // 3. Return a code point whose value is 0xF780 + byte − 0x80.
+      return 0xF780 + bite - 0x80;
+    };
+  }
+
+  // 15.5.2 x-user-defined encoder
+  /**
+   * @constructor
+   * @implements {Encoder}
+   * @param {{fatal: boolean}} options
+   */
+  function XUserDefinedEncoder(options) {
+    var fatal = options.fatal;
+    /**
+     * @param {Stream} stream Input stream.
+     * @param {number} code_point Next code point read from the stream.
+     * @return {(number|!Array.&lt;number>)} Byte(s) to emit.
+     */
+    this.handler = function(stream, code_point) {
+      // 1.If code point is end-of-stream, return finished.
+      if (code_point === end_of_stream)
+        return finished;
+
+      // 2. If code point is an ASCII code point, return a byte whose
+      // value is code point.
+      if (isASCIICodePoint(code_point))
+        return code_point;
+
+      // 3. If code point is in the range U+F780 to U+F7FF, inclusive,
+      // return a byte whose value is code point − 0xF780 + 0x80.
+      if (inRange(code_point, 0xF780, 0xF7FF))
+        return code_point - 0xF780 + 0x80;
+
+      // 4. Return error with code point.
+      return encoderError(code_point);
+    };
+  }
+
+  /** @param {{fatal: boolean}} options */
+  encoders['x-user-defined'] = function(options) {
+    return new XUserDefinedEncoder(options);
+  };
+  /** @param {{fatal: boolean}} options */
+  decoders['x-user-defined'] = function(options) {
+    return new XUserDefinedDecoder(options);
+  };
+
+  if (typeof module !== "undefined" &amp;&amp; module.exports) {
+    module.exports = {
+      TextEncoder: TextEncoder,
+      TextDecoder: TextDecoder,
+      EncodingIndexes: require("./encoding-indexes.js")["encoding-indexes"]
+    };
+  }
+
+// For strict environments where `this` inside the global scope
+// is `undefined`, take a pure object instead
+}(this || {}));
+</code></pre>
+        </article>
+    </section>
+
+
+
+
+</div>
+
+<nav>
+    <h2><a href="index.html">Home</a></h2><h3>Classes</h3><ul><li><a href="AWSSDKCredentialProvider.html">AWSSDKCredentialProvider</a></li><li><a href="AWSTemporaryCredentialProvider.html">AWSTemporaryCredentialProvider</a></li><li><a href="AbstractCursor.html">AbstractCursor</a></li><li><a href="AbstractOperation.html">AbstractOperation</a></li><li><a href="Adapter.html">Adapter</a></li><li><a href="Admin.html">Admin</a></li><li><a href="Agent.html">Agent</a></li><li><a href="AggregateOperation.html">AggregateOperation</a></li><li><a href="AggregationCursor.html">AggregationCursor</a></li><li><a href="AuthContext.html">AuthContext</a></li><li><a href="AuthProvider.html">AuthProvider</a></li><li><a href="AutoEncrypter.html">AutoEncrypter</a></li><li><a href="AutomatedCallbackWorkflow.html">AutomatedCallbackWorkflow</a></li><li><a href="Axios.html">Axios</a></li><li><a href="Axios$1.html">Axios$1</a></li><li><a href="AzureCredentialCache.html">AzureCredentialCache</a></li><li><a href="AzureMachineWorkflow.html">AzureMachineWorkflow</a></li><li><a href="BaseServer.html">BaseServer</a></li><li><a href="Batch.html">Batch</a></li><li><a href="BinaryReconstructor.html">BinaryReconstructor</a></li><li><a href="BufferPool.html">BufferPool</a></li><li><a href="BulkOperationBase.html">BulkOperationBase</a></li><li><a href="BulkWriteOperation.html">BulkWriteOperation</a></li><li><a href="BulkWriteResult.html">BulkWriteResult</a></li><li><a href="BulkWriteShimOperation.html">BulkWriteShimOperation</a></li><li><a href="CallbackWorkflow.html">CallbackWorkflow</a></li><li><a href="CancelToken.html">CancelToken</a></li><li><a href="CancelToken$1.html">CancelToken$1</a></li><li><a href="CancellationToken.html">CancellationToken</a></li><li><a href="global.html#CastError">CastError</a></li><li><a href="ChangeStream.html">ChangeStream</a></li><li><a href="ChangeStreamCursor.html">ChangeStreamCursor</a></li><li><a href="Client.html">Client</a></li><li><a href="ClientBulkWriteCommandBuilder.html">ClientBulkWriteCommandBuilder</a></li><li><a href="ClientBulkWriteCursor.html">ClientBulkWriteCursor</a></li><li><a href="ClientBulkWriteCursorResponse.html">ClientBulkWriteCursorResponse</a></li><li><a href="ClientBulkWriteExecutor.html">ClientBulkWriteExecutor</a></li><li><a href="ClientBulkWriteOperation.html">ClientBulkWriteOperation</a></li><li><a href="ClientBulkWriteResultsMerger.html">ClientBulkWriteResultsMerger</a></li><li><a href="ClientEncryption.html">ClientEncryption</a></li><li><a href="ClientSession.html">ClientSession</a></li><li><a href="CloseEvent.html">CloseEvent</a></li><li><a href="ClusterAdapter.html">ClusterAdapter</a></li><li><a href="global.html#Collection">Collection</a></li><li><a href="CollectionsOperation.html">CollectionsOperation</a></li><li><a href="CommandFailedEvent.html">CommandFailedEvent</a></li><li><a href="CommandOperation.html">CommandOperation</a></li><li><a href="CommandStartedEvent.html">CommandStartedEvent</a></li><li><a href="CommandSucceededEvent.html">CommandSucceededEvent</a></li><li><a href="Connection.html">Connection</a></li><li><a href="ConnectionCheckOutFailedEvent.html">ConnectionCheckOutFailedEvent</a></li><li><a href="ConnectionCheckOutStartedEvent.html">ConnectionCheckOutStartedEvent</a></li><li><a href="ConnectionCheckedInEvent.html">ConnectionCheckedInEvent</a></li><li><a href="ConnectionCheckedOutEvent.html">ConnectionCheckedOutEvent</a></li><li><a href="ConnectionClosedEvent.html">ConnectionClosedEvent</a></li><li><a href="ConnectionCreatedEvent.html">ConnectionCreatedEvent</a></li><li><a href="ConnectionPool.html">ConnectionPool</a></li><li><a href="ConnectionPoolClearedEvent.html">ConnectionPoolClearedEvent</a></li><li><a href="ConnectionPoolClosedEvent.html">ConnectionPoolClosedEvent</a></li><li><a href="ConnectionPoolCreatedEvent.html">ConnectionPoolCreatedEvent</a></li><li><a href="ConnectionPoolMetrics.html">ConnectionPoolMetrics</a></li><li><a href="ConnectionPoolMonitoringEvent.html">ConnectionPoolMonitoringEvent</a></li><li><a href="ConnectionPoolReadyEvent.html">ConnectionPoolReadyEvent</a></li><li><a href="ConnectionReadyEvent.html">ConnectionReadyEvent</a></li><li><a href="ContentDisposition.html">ContentDisposition</a></li><li><a href="CountOperation.html">CountOperation</a></li><li><a href="CreateCollectionOperation.html">CreateCollectionOperation</a></li><li><a href="CreateCollectionsError.html">CreateCollectionsError</a></li><li><a href="CreateIndexesOperation.html">CreateIndexesOperation</a></li><li><a href="CreateSearchIndexesOperation.html">CreateSearchIndexesOperation</a></li><li><a href="CryptoConnection.html">CryptoConnection</a></li><li><a href="CursorResponse.html">CursorResponse</a></li><li><a href="Db.html">Db</a></li><li><a href="DbStatsOperation.html">DbStatsOperation</a></li><li><a href="Decimal128.html">Decimal128</a></li><li><a href="Decoder.html">Decoder</a></li><li><a href="DeleteOperation.html">DeleteOperation</a></li><li><a href="DirEntry.html">DirEntry</a></li><li><a href="DistinctOperation.html">DistinctOperation</a></li><li><a href="DivergentArrayError.html">DivergentArrayError</a></li><li><a href="DocumentNotFoundError.html">DocumentNotFoundError</a></li><li><a href="DocumentSequence.html">DocumentSequence</a></li><li><a href="DropCollectionOperation.html">DropCollectionOperation</a></li><li><a href="DropDatabaseOperation.html">DropDatabaseOperation</a></li><li><a href="DropIndexOperation.html">DropIndexOperation</a></li><li><a href="DropSearchIndexOperation.html">DropSearchIndexOperation</a></li><li><a href="EachAsyncMultiError.html">EachAsyncMultiError</a></li><li><a href="Encoder.html">Encoder</a></li><li><a href="Encrypter.html">Encrypter</a></li><li><a href="global.html#Error">Error</a></li><li><a href="ErrorEvent.html">ErrorEvent</a></li><li><a href="EstimatedDocumentCountOperation.html">EstimatedDocumentCountOperation</a></li><li><a href="Event.html">Event</a></li><li><a href="Explain.html">Explain</a></li><li><a href="ExplainedCursorResponse.html">ExplainedCursorResponse</a></li><li><a href="FSWatcher.html">FSWatcher</a></li><li><a href="FindAndModifyOperation.html">FindAndModifyOperation</a></li><li><a href="FindCursor.html">FindCursor</a></li><li><a href="FindOneAndDeleteOperation.html">FindOneAndDeleteOperation</a></li><li><a href="FindOneAndReplaceOperation.html">FindOneAndReplaceOperation</a></li><li><a href="FindOneAndUpdateOperation.html">FindOneAndUpdateOperation</a></li><li><a href="FindOperation.html">FindOperation</a></li><li><a href="FindOperators.html">FindOperators</a></li><li><a href="FormData.html">FormData</a></li><li><a href="GCPMachineWorkflow.html">GCPMachineWorkflow</a></li><li><a href="GetMoreOperation.html">GetMoreOperation</a></li><li><a href="GridFSBucket.html">GridFSBucket</a></li><li><a href="GridFSBucketReadStream.html">GridFSBucketReadStream</a></li><li><a href="GridFSBucketWriteStream.html">GridFSBucketWriteStream</a></li><li><a href="Headers.html">Headers</a></li><li><a href="HostAddress.html">HostAddress</a></li><li><a href="HttpsProxyAgent.html">HttpsProxyAgent</a></li><li><a href="HumanCallbackWorkflow.html">HumanCallbackWorkflow</a></li><li><a href="InsertManyOperation.html">InsertManyOperation</a></li><li><a href="InsertOperation.html">InsertOperation</a></li><li><a href="InvalidSchemaOptionError.html">InvalidSchemaOptionError</a></li><li><a href="IsCappedOperation.html">IsCappedOperation</a></li><li><a href="JSONP.html">JSONP</a></li><li><a href="LegacyAWSTemporaryCredentialProvider.html">LegacyAWSTemporaryCredentialProvider</a></li><li><a href="LimitedSizeDocument.html">LimitedSizeDocument</a></li><li><a href="Limiter.html">Limiter</a></li><li><a href="List.html">List</a></li><li><a href="ListCollectionsCursor.html">ListCollectionsCursor</a></li><li><a href="ListCollectionsOperation.html">ListCollectionsOperation</a></li><li><a href="ListDatabasesOperation.html">ListDatabasesOperation</a></li><li><a href="ListIndexesCursor.html">ListIndexesCursor</a></li><li><a href="ListIndexesOperation.html">ListIndexesOperation</a></li><li><a href="ListSearchIndexesCursor.html">ListSearchIndexesCursor</a></li><li><a href="MachineWorkflow.html">MachineWorkflow</a></li><li><a href="MessageEvent.html">MessageEvent</a></li><li><a href="MissingSchemaError.html">MissingSchemaError</a></li><li><a href="MongoAPIError.html">MongoAPIError</a></li><li><a href="MongoAWSError.html">MongoAWSError</a></li><li><a href="MongoAzureError.html">MongoAzureError</a></li><li><a href="MongoBatchReExecutionError.html">MongoBatchReExecutionError</a></li><li><a href="MongoBulkWriteError.html">MongoBulkWriteError</a></li><li><a href="MongoChangeStreamError.html">MongoChangeStreamError</a></li><li><a href="MongoClient.html">MongoClient</a></li><li><a href="MongoClientAuthProviders.html">MongoClientAuthProviders</a></li><li><a href="MongoClientBulkWriteCursorError.html">MongoClientBulkWriteCursorError</a></li><li><a href="MongoClientBulkWriteError.html">MongoClientBulkWriteError</a></li><li><a href="MongoClientBulkWriteExecutionError.html">MongoClientBulkWriteExecutionError</a></li><li><a href="MongoCompatibilityError.html">MongoCompatibilityError</a></li><li><a href="MongoCredentials.html">MongoCredentials</a></li><li><a href="MongoCryptAzureKMSRequestError.html">MongoCryptAzureKMSRequestError</a></li><li><a href="MongoCryptCreateDataKeyError.html">MongoCryptCreateDataKeyError</a></li><li><a href="MongoCryptCreateEncryptedCollectionError.html">MongoCryptCreateEncryptedCollectionError</a></li><li><a href="MongoCryptError.html">MongoCryptError</a></li><li><a href="MongoCryptInvalidArgumentError.html">MongoCryptInvalidArgumentError</a></li><li><a href="MongoCryptKMSRequestNetworkTimeoutError.html">MongoCryptKMSRequestNetworkTimeoutError</a></li><li><a href="MongoCursorExhaustedError.html">MongoCursorExhaustedError</a></li><li><a href="MongoCursorInUseError.html">MongoCursorInUseError</a></li><li><a href="MongoDBCollectionNamespace.html">MongoDBCollectionNamespace</a></li><li><a href="MongoDBNamespace.html">MongoDBNamespace</a></li><li><a href="MongoDBOIDC.html">MongoDBOIDC</a></li><li><a href="MongoDBResponse.html">MongoDBResponse</a></li><li><a href="MongoDecompressionError.html">MongoDecompressionError</a></li><li><a href="MongoDriverError.html">MongoDriverError</a></li><li><a href="MongoError.html">MongoError</a></li><li><a href="MongoExpiredSessionError.html">MongoExpiredSessionError</a></li><li><a href="MongoGCPError.html">MongoGCPError</a></li><li><a href="MongoGridFSChunkError.html">MongoGridFSChunkError</a></li><li><a href="MongoGridFSStreamError.html">MongoGridFSStreamError</a></li><li><a href="MongoInvalidArgumentError.html">MongoInvalidArgumentError</a></li><li><a href="MongoKerberosError.html">MongoKerberosError</a></li><li><a href="MongoLogger.html">MongoLogger</a></li><li><a href="MongoMissingCredentialsError.html">MongoMissingCredentialsError</a></li><li><a href="MongoMissingDependencyError.html">MongoMissingDependencyError</a></li><li><a href="MongoNetworkError.html">MongoNetworkError</a></li><li><a href="MongoNetworkTimeoutError.html">MongoNetworkTimeoutError</a></li><li><a href="MongoNotConnectedError.html">MongoNotConnectedError</a></li><li><a href="MongoOIDCError.html">MongoOIDCError</a></li><li><a href="MongoParseError.html">MongoParseError</a></li><li><a href="MongoRuntimeError.html">MongoRuntimeError</a></li><li><a href="MongoServerClosedError.html">MongoServerClosedError</a></li><li><a href="MongoServerError.html">MongoServerError</a></li><li><a href="MongoServerSelectionError.html">MongoServerSelectionError</a></li><li><a href="MongoSystemError.html">MongoSystemError</a></li><li><a href="MongoTailableCursorError.html">MongoTailableCursorError</a></li><li><a href="MongoTopologyClosedError.html">MongoTopologyClosedError</a></li><li><a href="MongoTransactionError.html">MongoTransactionError</a></li><li><a href="MongoUnexpectedServerResponseError.html">MongoUnexpectedServerResponseError</a></li><li><a href="MongoWriteConcernError.html">MongoWriteConcernError</a></li><li><a href="MongocryptdManager.html">MongocryptdManager</a></li><li><a href="MongooseBulkSaveIncompleteError.html">MongooseBulkSaveIncompleteError</a></li><li><a href="MongooseBulkWriteError.html">MongooseBulkWriteError</a></li><li><a href="Monitor.html">Monitor</a></li><li><a href="MonitorInterval.html">MonitorInterval</a></li><li><a href="Namespace.html">Namespace</a></li><li><a href="ObjectExpectedError.html">ObjectExpectedError</a></li><li><a href="ObjectId.html">ObjectId</a></li><li><a href="ObjectParameterError.html">ObjectParameterError</a></li><li><a href="OnDemandDocument.html">OnDemandDocument</a></li><li><a href="OpCompressedRequest.html">OpCompressedRequest</a></li><li><a href="OpMsgRequest.html">OpMsgRequest</a></li><li><a href="OpMsgResponse.html">OpMsgResponse</a></li><li><a href="OpQueryRequest.html">OpQueryRequest</a></li><li><a href="OpReply.html">OpReply</a></li><li><a href="OptionsOperation.html">OptionsOperation</a></li><li><a href="OrderedBulkOperation.html">OrderedBulkOperation</a></li><li><a href="OverwriteModelError.html">OverwriteModelError</a></li><li><a href="ParallelSaveError.html">ParallelSaveError</a></li><li><a href="ParallelValidateError.html">ParallelValidateError</a></li><li><a href="ParentNamespace.html">ParentNamespace</a></li><li><a href="PerMessageDeflate.html">PerMessageDeflate</a></li><li><a href="Polling.html">Polling</a></li><li><a href="PoolClearedError.html">PoolClearedError</a></li><li><a href="PoolClearedOnNetworkError.html">PoolClearedOnNetworkError</a></li><li><a href="PoolClosedError.html">PoolClosedError</a></li><li><a href="ProfilingLevelOperation.html">ProfilingLevelOperation</a></li><li><a href="RTTPinger.html">RTTPinger</a></li><li><a href="RTTSampler.html">RTTSampler</a></li><li><a href="ReadConcern.html">ReadConcern</a></li><li><a href="ReadPreference.html">ReadPreference</a></li><li><a href="Receiver.html">Receiver</a></li><li><a href="RemoteSocket.html">RemoteSocket</a></li><li><a href="RemoveUserOperation.html">RemoveUserOperation</a></li><li><a href="RenameOperation.html">RenameOperation</a></li><li><a href="ReplaceOneOperation.html">ReplaceOneOperation</a></li><li><a href="Request.html">Request</a></li><li><a href="Response.html">Response</a></li><li><a href="RunCommandCursor.html">RunCommandCursor</a></li><li><a href="RunCommandOperation.html">RunCommandOperation</a></li><li><a href="SchemaArrayOptions.html">SchemaArrayOptions</a></li><li><a href="SchemaBufferOptions.html">SchemaBufferOptions</a></li><li><a href="SchemaDateOptions.html">SchemaDateOptions</a></li><li><a href="SchemaDocumentOptions.html">SchemaDocumentOptions</a></li><li><a href="SchemaMapOptions.html">SchemaMapOptions</a></li><li><a href="SchemaNumberOptions.html">SchemaNumberOptions</a></li><li><a href="SchemaObjectIdOptions.html">SchemaObjectIdOptions</a></li><li><a href="SchemaStringOptions.html">SchemaStringOptions</a></li><li><a href="SchemaSubdocumentOptions.html">SchemaSubdocumentOptions</a></li><li><a href="global.html#SchemaTypeOptions">SchemaTypeOptions</a></li><li><a href="Sender.html">Sender</a></li><li><a href="Server.html">Server</a></li><li><a href="ServerCapabilities.html">ServerCapabilities</a></li><li><a href="ServerClosedEvent.html">ServerClosedEvent</a></li><li><a href="ServerDescription.html">ServerDescription</a></li><li><a href="ServerDescriptionChangedEvent.html">ServerDescriptionChangedEvent</a></li><li><a href="ServerHeartbeatFailedEvent.html">ServerHeartbeatFailedEvent</a></li><li><a href="ServerHeartbeatStartedEvent.html">ServerHeartbeatStartedEvent</a></li><li><a href="ServerHeartbeatSucceededEvent.html">ServerHeartbeatSucceededEvent</a></li><li><a href="ServerOpeningEvent.html">ServerOpeningEvent</a></li><li><a href="ServerSelectionEvent.html">ServerSelectionEvent</a></li><li><a href="ServerSelectionFailedEvent.html">ServerSelectionFailedEvent</a></li><li><a href="ServerSelectionStartedEvent.html">ServerSelectionStartedEvent</a></li><li><a href="ServerSelectionSucceededEvent.html">ServerSelectionSucceededEvent</a></li><li><a href="ServerSession.html">ServerSession</a></li><li><a href="ServerSessionPool.html">ServerSessionPool</a></li><li><a href="SetOptionError.html">SetOptionError</a></li><li><a href="SetOptionInnerError.html">SetOptionInnerError</a></li><li><a href="SetProfilingLevelOperation.html">SetProfilingLevelOperation</a></li><li><a href="SeverityLevelMap.html">SeverityLevelMap</a></li><li><a href="SizedMessageTransform.html">SizedMessageTransform</a></li><li><a href="Socket.html">Socket</a></li><li><a href="SrvPoller.html">SrvPoller</a></li><li><a href="SrvPollingEvent.html">SrvPollingEvent</a></li><li><a href="global.html#StateMachine">StateMachine</a></li><li><a href="StreamDescription.html">StreamDescription</a></li><li><a href="StrictEventEmitter.html">StrictEventEmitter</a></li><li><a href="StrictModeError.html">StrictModeError</a></li><li><a href="StrictPopulateError.html">StrictPopulateError</a></li><li><a href="SyncIndexesError.html">SyncIndexesError</a></li><li><a href="Timeout.html">Timeout</a></li><li><a href="TimeoutError.html">TimeoutError</a></li><li><a href="TokenCache.html">TokenCache</a></li><li><a href="TokenMachineWorkflow.html">TokenMachineWorkflow</a></li><li><a href="Topology.html">Topology</a></li><li><a href="TopologyClosedEvent.html">TopologyClosedEvent</a></li><li><a href="TopologyDescription.html">TopologyDescription</a></li><li><a href="TopologyDescriptionChangedEvent.html">TopologyDescriptionChangedEvent</a></li><li><a href="TopologyOpeningEvent.html">TopologyOpeningEvent</a></li><li><a href="Transaction.html">Transaction</a></li><li><a href="Transport.html">Transport</a></li><li><a href="TypedEventEmitter.html">TypedEventEmitter</a></li><li><a href="UUID.html">UUID</a></li><li><a href="UnorderedBulkOperation.html">UnorderedBulkOperation</a></li><li><a href="UpdateManyOperation.html">UpdateManyOperation</a></li><li><a href="UpdateOneOperation.html">UpdateOneOperation</a></li><li><a href="UpdateOperation.html">UpdateOperation</a></li><li><a href="UpdateSearchIndexOperation.html">UpdateSearchIndexOperation</a></li><li><a href="ValidateCollectionOperation.html">ValidateCollectionOperation</a></li><li><a href="ValidationError.html">ValidationError</a></li><li><a href="ValidatorError.html">ValidatorError</a></li><li><a href="VersionError.html">VersionError</a></li><li><a href="WaitQueueTimeoutError.html">WaitQueueTimeoutError</a></li><li><a href="WaitingForSuitableServerEvent.html">WaitingForSuitableServerEvent</a></li><li><a href="WebSocket.html">WebSocket</a></li><li><a href="WebSocketResponse.html">WebSocketResponse</a></li><li><a href="WebSocketServer.html">WebSocketServer</a></li><li><a href="WebTransport.html">WebTransport</a></li><li><a href="WriteConcern.html">WriteConcern</a></li><li><a href="WriteConcernError.html">WriteConcernError</a></li><li><a href="WriteError.html">WriteError</a></li><li><a href="uServer.html">uServer</a></li></ul><h3>Events</h3><ul><li><a href="AbstractCursor.html#.event:CLOSE">CLOSE</a></li><li><a href="ChangeStream.html#.event:CHANGE">CHANGE</a></li><li><a href="ChangeStream.html#.event:CLOSE">CLOSE</a></li><li><a href="ChangeStream.html#.event:END">END</a></li><li><a href="ChangeStream.html#.event:ERROR">ERROR</a></li><li><a href="ChangeStream.html#.event:INIT">INIT</a></li><li><a href="ChangeStream.html#.event:MORE">MORE</a></li><li><a href="ChangeStream.html#.event:RESPONSE">RESPONSE</a></li><li><a href="ChangeStream.html#.event:RESUME_TOKEN_CHANGED">RESUME_TOKEN_CHANGED</a></li><li><a href="Connection.html#.event:CLOSE">CLOSE</a></li><li><a href="Connection.html#.event:CLUSTER_TIME_RECEIVED">CLUSTER_TIME_RECEIVED</a></li><li><a href="Connection.html#.event:COMMAND_FAILED">COMMAND_FAILED</a></li><li><a href="Connection.html#.event:COMMAND_STARTED">COMMAND_STARTED</a></li><li><a href="Connection.html#.event:COMMAND_SUCCEEDED">COMMAND_SUCCEEDED</a></li><li><a href="Connection.html#.event:PINNED">PINNED</a></li><li><a href="Connection.html#.event:UNPINNED">UNPINNED</a></li><li><a href="ConnectionPool.html#.event:CONNECTION_CHECKED_IN">CONNECTION_CHECKED_IN</a></li><li><a href="ConnectionPool.html#.event:CONNECTION_CHECKED_OUT">CONNECTION_CHECKED_OUT</a></li><li><a href="ConnectionPool.html#.event:CONNECTION_CHECK_OUT_FAILED">CONNECTION_CHECK_OUT_FAILED</a></li><li><a href="ConnectionPool.html#.event:CONNECTION_CHECK_OUT_STARTED">CONNECTION_CHECK_OUT_STARTED</a></li><li><a href="ConnectionPool.html#.event:CONNECTION_CLOSED">CONNECTION_CLOSED</a></li><li><a href="ConnectionPool.html#.event:CONNECTION_CREATED">CONNECTION_CREATED</a></li><li><a href="ConnectionPool.html#.event:CONNECTION_POOL_CLEARED">CONNECTION_POOL_CLEARED</a></li><li><a href="ConnectionPool.html#.event:CONNECTION_POOL_CLOSED">CONNECTION_POOL_CLOSED</a></li><li><a href="ConnectionPool.html#.event:CONNECTION_POOL_CREATED">CONNECTION_POOL_CREATED</a></li><li><a href="ConnectionPool.html#.event:CONNECTION_POOL_READY">CONNECTION_POOL_READY</a></li><li><a href="ConnectionPool.html#.event:CONNECTION_READY">CONNECTION_READY</a></li><li><a href="GridFSBucket.html#.event:INDEX">INDEX</a></li><li><a href="GridFSBucketReadStream.html#.event:FILE">FILE</a></li><li><a href="Server.html#.event:CLOSED">CLOSED</a></li><li><a href="Server.html#.event:CONNECT">CONNECT</a></li><li><a href="Server.html#.event:DESCRIPTION_RECEIVED">DESCRIPTION_RECEIVED</a></li><li><a href="Server.html#.event:ENDED">ENDED</a></li><li><a href="Server.html#.event:SERVER_HEARTBEAT_FAILED">SERVER_HEARTBEAT_FAILED</a></li><li><a href="Server.html#.event:SERVER_HEARTBEAT_STARTED">SERVER_HEARTBEAT_STARTED</a></li><li><a href="Server.html#.event:SERVER_HEARTBEAT_SUCCEEDED">SERVER_HEARTBEAT_SUCCEEDED</a></li><li><a href="SrvPoller.html#.event:SRV_RECORD_DISCOVERY">SRV_RECORD_DISCOVERY</a></li><li><a href="Topology.html#.event:CLOSE">CLOSE</a></li><li><a href="Topology.html#.event:CONNECT">CONNECT</a></li><li><a href="Topology.html#.event:ERROR">ERROR</a></li><li><a href="Topology.html#.event:OPEN">OPEN</a></li><li><a href="Topology.html#.event:SERVER_CLOSED">SERVER_CLOSED</a></li><li><a href="Topology.html#.event:SERVER_DESCRIPTION_CHANGED">SERVER_DESCRIPTION_CHANGED</a></li><li><a href="Topology.html#.event:SERVER_OPENING">SERVER_OPENING</a></li><li><a href="Topology.html#.event:TIMEOUT">TIMEOUT</a></li><li><a href="Topology.html#.event:TOPOLOGY_CLOSED">TOPOLOGY_CLOSED</a></li><li><a href="Topology.html#.event:TOPOLOGY_DESCRIPTION_CHANGED">TOPOLOGY_DESCRIPTION_CHANGED</a></li><li><a href="Topology.html#.event:TOPOLOGY_OPENING">TOPOLOGY_OPENING</a></li><li><a href="%2560index-single-done%2560_%2520Emitted%2520when%2520an%2520individual%2520index%2520finishes%2520within%2520%2560Model_ensureIndexes%2560.%2520If%2520an%2520error%2520occurred%2520it%2520is%2520passed%2520with%2520the%2520event.%2520The%2520fields,%2520options.html#event:andindexnamearealsopassed."> and index name are also passed.</a></li><li><a href="%2560operation-end%2560_%2520Emitted%2520when%2520a%2520call%2520to%2520the%2520MongoDB%2520Node.js%2520driver,%2520like%2520a%2520%2560find()%2560%2520or%2520%2560insertOne()%2560.html#event:eithersucceedsorerrors."> either succeeds or errors.</a></li><li><a href="global.html#event:%2560end%2560:Emittedwhenthestreamisexhausted">`end`: Emitted when the stream is exhausted</a></li><li><a href="global.html#event:%2560init%2560:Emittedaftertheschemaiscompiledintoa%2560Model%2560.">`init`: Emitted after the schema is compiled into a `Model`.</a></li><li><a href="global.html#event:%2560save%2560:Emittedwhenthedocumentissuccessfullysaved">`save`: Emitted when the document is successfully saved</a></li></ul><h3>Mixins</h3><ul><li><a href="EventTarget.html">EventTarget</a></li><li><a href="FsEventsHandler.html">FsEventsHandler</a></li><li><a href="NodeFsHandler.html">NodeFsHandler</a></li></ul><h3>Global</h3><ul><li><a href="global.html"></a></li><li><a href="global.html#$__save">$__save</a></li><li><a href="global.html#$defineProperty">$defineProperty</a></li><li><a href="global.html#$format">$format</a></li><li><a href="global.html#$model">$model</a></li><li><a href="global.html#$parent">$parent</a></li><li><a href="global.html#$print">$print</a></li><li><a href="global.html#$withinCmd">$withinCmd</a></li><li><a href="global.html#APM_EVENTS">APM_EVENTS</a></li><li><a href="global.html#AUTH_MECHS_AUTH_SRC_EXTERNAL">AUTH_MECHS_AUTH_SRC_EXTERNAL</a></li><li><a href="global.html#AUTH_PROVIDERS">AUTH_PROVIDERS</a></li><li><a href="global.html#AUTOMATED_TIMEOUT_MS">AUTOMATED_TIMEOUT_MS</a></li><li><a href="global.html#AZURE_BASE_URL">AZURE_BASE_URL</a></li><li><a href="global.html#AZURE_HEADERS">AZURE_HEADERS</a></li><li><a href="global.html#AbortError">AbortError</a></li><li><a href="global.html#Accepts">Accepts</a></li><li><a href="global.html#Aggregate">Aggregate</a></li><li><a href="global.html#ArraySubdocument">ArraySubdocument</a></li><li><a href="global.html#AuthMechanism">AuthMechanism</a></li><li><a href="global.html#AutoEncryptionLoggerLevel">AutoEncryptionLoggerLevel</a></li><li><a href="global.html#AxiosError">AxiosError</a></li><li><a href="global.html#AxiosError$1">AxiosError$1</a></li><li><a href="global.html#AxiosURLSearchParams">AxiosURLSearchParams</a></li><li><a href="global.html#Base64Id">Base64Id</a></li><li><a href="global.html#BatchType">BatchType</a></li><li><a href="global.html#Body">Body</a></li><li><a href="global.html#Buffer">Buffer</a></li><li><a href="global.html#CALLBACK_RESULT_ERROR">CALLBACK_RESULT_ERROR</a></li><li><a href="global.html#CMAP_EVENTS">CMAP_EVENTS</a></li><li><a href="global.html#COMMAND_FAILED">COMMAND_FAILED</a></li><li><a href="global.html#COMMAND_STARTED">COMMAND_STARTED</a></li><li><a href="global.html#COMMAND_SUCCEEDED">COMMAND_SUCCEEDED</a></li><li><a href="global.html#CONNECTION_CHECKED_IN">CONNECTION_CHECKED_IN</a></li><li><a href="global.html#CONNECTION_CHECKED_OUT">CONNECTION_CHECKED_OUT</a></li><li><a href="global.html#CONNECTION_CHECK_OUT_FAILED">CONNECTION_CHECK_OUT_FAILED</a></li><li><a href="global.html#CONNECTION_CHECK_OUT_STARTED">CONNECTION_CHECK_OUT_STARTED</a></li><li><a href="global.html#CONNECTION_CLOSED">CONNECTION_CLOSED</a></li><li><a href="global.html#CONNECTION_CREATED">CONNECTION_CREATED</a></li><li><a href="global.html#CONNECTION_POOL_CLEARED">CONNECTION_POOL_CLEARED</a></li><li><a href="global.html#CONNECTION_POOL_CLOSED">CONNECTION_POOL_CLOSED</a></li><li><a href="global.html#CONNECTION_POOL_CREATED">CONNECTION_POOL_CREATED</a></li><li><a href="global.html#CONNECTION_POOL_READY">CONNECTION_POOL_READY</a></li><li><a href="global.html#CONNECTION_READY">CONNECTION_READY</a></li><li><a href="global.html#COSMOS_DB_CHECK">COSMOS_DB_CHECK</a></li><li><a href="global.html#COSMOS_DB_MSG">COSMOS_DB_MSG</a></li><li><a href="global.html#CURSOR_FLAGS">CURSOR_FLAGS</a></li><li><a href="global.html#CanceledError">CanceledError</a></li><li><a href="global.html#CanceledError$1">CanceledError$1</a></li><li><a href="global.html#Compressor">Compressor</a></li><li><a href="global.html#DB_AGGREGATE_COLLECTION">DB_AGGREGATE_COLLECTION</a></li><li><a href="global.html#DEFAULT_ALLOWED_HOSTS">DEFAULT_ALLOWED_HOSTS</a></li><li><a href="global.html#DEFAULT_MAX_DOCUMENT_LENGTH">DEFAULT_MAX_DOCUMENT_LENGTH</a></li><li><a href="global.html#DOCUMENT_DB_CHECK">DOCUMENT_DB_CHECK</a></li><li><a href="global.html#DOCUMENT_DB_MSG">DOCUMENT_DB_MSG</a></li><li><a href="global.html#DOT_LITERAL">DOT_LITERAL</a></li><li><a href="global.html#Delegator">Delegator</a></li><li><a href="global.html#DeprecationError">DeprecationError</a></li><li><a href="global.html#Document">Document</a></li><li><a href="global.html#DocumentProvider">DocumentProvider</a></li><li><a href="global.html#EMPTY_V">EMPTY_V</a></li><li><a href="global.html#ENDPOINT_RESULT_ERROR">ENDPOINT_RESULT_ERROR</a></li><li><a href="global.html#Emitter">Emitter</a></li><li><a href="global.html#ExplainVerbosity">ExplainVerbosity</a></li><li><a href="global.html#FEATURE_FLAGS">FEATURE_FLAGS</a></li><li><a href="global.html#FIELD_NAME_REGEXP">FIELD_NAME_REGEXP</a></li><li><a href="global.html#FIRST_CHAR_REGEXP">FIRST_CHAR_REGEXP</a></li><li><a href="global.html#FLAGS">FLAGS</a></li><li><a href="global.html#FSEventsWatchers">FSEventsWatchers</a></li><li><a href="global.html#FetchError">FetchError</a></li><li><a href="global.html#FsWatchInstances">FsWatchInstances</a></li><li><a href="global.html#GCP_BASE_URL">GCP_BASE_URL</a></li><li><a href="global.html#GCP_HEADERS">GCP_HEADERS</a></li><li><a href="global.html#GLIBC">GLIBC</a></li><li><a href="global.html#GSSAPICanonicalizationValue">GSSAPICanonicalizationValue</a></li><li><a href="global.html#HEARTBEAT_EVENTS">HEARTBEAT_EVENTS</a></li><li><a href="global.html#HUMAN_TIMEOUT_MS">HUMAN_TIMEOUT_MS</a></li><li><a href="global.html#IPv4SegmentFormat">IPv4SegmentFormat</a></li><li><a href="global.html#Kareem">Kareem</a></li><li><a href="global.html#LDD_PATH">LDD_PATH</a></li><li><a href="global.html#LEGACY_HELLO_COMMAND">LEGACY_HELLO_COMMAND</a></li><li><a href="global.html#LEGACY_HELLO_COMMAND_CAMEL_CASE">LEGACY_HELLO_COMMAND_CAMEL_CASE</a></li><li><a href="global.html#LEGACY_NOT_PRIMARY_OR_SECONDARY_ERROR_MESSAGE">LEGACY_NOT_PRIMARY_OR_SECONDARY_ERROR_MESSAGE</a></li><li><a href="global.html#LEGACY_NOT_WRITABLE_PRIMARY_ERROR_MESSAGE">LEGACY_NOT_WRITABLE_PRIMARY_ERROR_MESSAGE</a></li><li><a href="global.html#LEGAL_TCP_SOCKET_OPTIONS">LEGAL_TCP_SOCKET_OPTIONS</a></li><li><a href="global.html#LEGAL_TLS_SOCKET_OPTIONS">LEGAL_TLS_SOCKET_OPTIONS</a></li><li><a href="global.html#LENGTH_EAN_8">LENGTH_EAN_8</a></li><li><a href="global.html#LOCAL_SERVER_EVENTS">LOCAL_SERVER_EVENTS</a></li><li><a href="global.html#MATCHING_GROUP_REGEXP">MATCHING_GROUP_REGEXP</a></li><li><a href="global.html#MESSAGE_OVERHEAD_BYTES">MESSAGE_OVERHEAD_BYTES</a></li><li><a href="global.html#MISSING_CREDENTIALS_ERROR">MISSING_CREDENTIALS_ERROR</a></li><li><a href="global.html#MONGODB_ERROR_CODES">MONGODB_ERROR_CODES</a></li><li><a href="global.html#MONGODB_WARNING_CODE">MONGODB_WARNING_CODE</a></li><li><a href="global.html#MONGO_CLIENT_EVENTS">MONGO_CLIENT_EVENTS</a></li><li><a href="global.html#MUSL">MUSL</a></li><li><a href="global.html#Model">Model</a></li><li><a href="global.html#MongoErrorLabel">MongoErrorLabel</a></li><li><a href="global.html#MongoLoggableComponent">MongoLoggableComponent</a></li><li><a href="global.html#Mongoose">Mongoose</a></li><li><a href="global.html#MongooseBuffer">MongooseBuffer</a></li><li><a href="global.html#MongooseDocumentArray">MongooseDocumentArray</a></li><li><a href="global.html#NODE_IS_RECOVERING_ERROR_MESSAGE">NODE_IS_RECOVERING_ERROR_MESSAGE</a></li><li><a href="global.html#NativeCollection">NativeCollection</a></li><li><a href="global.html#NativeConnection">NativeConnection</a></li><li><a href="global.html#Negotiator">Negotiator</a></li><li><a href="global.html#OIDC_VERSION">OIDC_VERSION</a></li><li><a href="global.html#OIDC_WORKFLOWS">OIDC_WORKFLOWS</a></li><li><a href="global.html#PARAM_REGEXP">PARAM_REGEXP</a></li><li><a href="global.html#POSIX_REGEX_SOURCE">POSIX_REGEX_SOURCE</a></li><li><a href="global.html#PoolState">PoolState</a></li><li><a href="global.html#ProfilingLevel">ProfilingLevel</a></li><li><a href="global.html#QESC_REGEXP">QESC_REGEXP</a></li><li><a href="global.html#QUOTE_REGEXP">QUOTE_REGEXP</a></li><li><a href="global.html#Query">Query</a></li><li><a href="global.html#RESERVED_EVENTS">RESERVED_EVENTS</a></li><li><a href="global.html#RESULT_PROPERTIES">RESULT_PROPERTIES</a></li><li><a href="global.html#RE_GLIBC_VERSION">RE_GLIBC_VERSION</a></li><li><a href="global.html#ReadConcernLevel">ReadConcernLevel</a></li><li><a href="global.html#ReadPreferenceMode">ReadPreferenceMode</a></li><li><a href="global.html#ReadableAsyncKit">ReadableAsyncKit</a></li><li><a href="global.html#ReadableParallel">ReadableParallel</a></li><li><a href="global.html#ReadableSerial">ReadableSerial</a></li><li><a href="global.html#ReadableSerialOrdered">ReadableSerialOrdered</a></li><li><a href="global.html#ReturnDocument">ReturnDocument</a></li><li><a href="global.html#Route">Route</a></li><li><a href="global.html#SENSITIVE_COMMANDS">SENSITIVE_COMMANDS</a></li><li><a href="global.html#SERVER_CLOSED">SERVER_CLOSED</a></li><li><a href="global.html#SERVER_DESCRIPTION_CHANGED">SERVER_DESCRIPTION_CHANGED</a></li><li><a href="global.html#SERVER_HEARTBEAT_FAILED">SERVER_HEARTBEAT_FAILED</a></li><li><a href="global.html#SERVER_HEARTBEAT_STARTED">SERVER_HEARTBEAT_STARTED</a></li><li><a href="global.html#SERVER_HEARTBEAT_SUCCEEDED">SERVER_HEARTBEAT_SUCCEEDED</a></li><li><a href="global.html#SERVER_OPENING">SERVER_OPENING</a></li><li><a href="global.html#SERVER_RELAY_EVENTS">SERVER_RELAY_EVENTS</a></li><li><a href="global.html#SERVER_SELECTION_FAILED">SERVER_SELECTION_FAILED</a></li><li><a href="global.html#SERVER_SELECTION_STARTED">SERVER_SELECTION_STARTED</a></li><li><a href="global.html#SERVER_SELECTION_SUCCEEDED">SERVER_SELECTION_SUCCEEDED</a></li><li><a href="global.html#SEVERITY_LEVEL_MAP">SEVERITY_LEVEL_MAP</a></li><li><a href="global.html#Schema">Schema</a></li><li><a href="global.html#SchemaArray">SchemaArray</a></li><li><a href="global.html#SchemaBigInt">SchemaBigInt</a></li><li><a href="global.html#SchemaBoolean">SchemaBoolean</a></li><li><a href="global.html#SchemaBuffer">SchemaBuffer</a></li><li><a href="global.html#SchemaDate">SchemaDate</a></li><li><a href="global.html#SchemaDecimal128">SchemaDecimal128</a></li><li><a href="global.html#SchemaDocumentArray">SchemaDocumentArray</a></li><li><a href="global.html#SchemaDocumentArrayElement">SchemaDocumentArrayElement</a></li><li><a href="global.html#SchemaMixed">SchemaMixed</a></li><li><a href="global.html#SchemaNumber">SchemaNumber</a></li><li><a href="global.html#SchemaObjectId">SchemaObjectId</a></li><li><a href="global.html#SchemaString">SchemaString</a></li><li><a href="global.html#SchemaSubdocument">SchemaSubdocument</a></li><li><a href="global.html#SchemaType">SchemaType</a></li><li><a href="global.html#SchemaUUID">SchemaUUID</a></li><li><a href="global.html#ServerApiVersion">ServerApiVersion</a></li><li><a href="global.html#ServerMonitoringMode">ServerMonitoringMode</a></li><li><a href="global.html#ServerType">ServerType</a></li><li><a href="global.html#SeverityLevel">SeverityLevel</a></li><li><a href="global.html#Subdocument">Subdocument</a></li><li><a href="global.html#THROTTLE_MS">THROTTLE_MS</a></li><li><a href="global.html#TOKEN_MISSING_ERROR">TOKEN_MISSING_ERROR</a></li><li><a href="global.html#TOKEN_RESOURCE_MISSING_ERROR">TOKEN_RESOURCE_MISSING_ERROR</a></li><li><a href="global.html#TOPOLOGY_CLOSED">TOPOLOGY_CLOSED</a></li><li><a href="global.html#TOPOLOGY_DESCRIPTION_CHANGED">TOPOLOGY_DESCRIPTION_CHANGED</a></li><li><a href="global.html#TOPOLOGY_EVENTS">TOPOLOGY_EVENTS</a></li><li><a href="global.html#TOPOLOGY_OPENING">TOPOLOGY_OPENING</a></li><li><a href="global.html#TYPE_REGEXP">TYPE_REGEXP</a></li><li><a href="global.html#TopologyType">TopologyType</a></li><li><a href="global.html#TxnState">TxnState</a></li><li><a href="global.html#Types">Types</a></li><li><a href="global.html#UNACKNOWLEDGED">UNACKNOWLEDGED</a></li><li><a href="global.html#View">View</a></li><li><a href="global.html#VirtualType">VirtualType</a></li><li><a href="global.html#WAITING_FOR_SUITABLE_SERVER">WAITING_FOR_SUITABLE_SERVER</a></li><li><a href="global.html#WINDOWS_CHARS">WINDOWS_CHARS</a></li><li><a href="global.html#__exportStar">__exportStar</a></li><li><a href="global.html#_advanceClusterTime">_advanceClusterTime</a></li><li><a href="global.html#_basePush">_basePush</a></li><li><a href="global.html#_checkContext">_checkContext</a></li><li><a href="global.html#_destroy">_destroy</a></li><li><a href="global.html#_filterInvalidIds">_filterInvalidIds</a></li><li><a href="global.html#_formatMatch">_formatMatch</a></li><li><a href="global.html#_getOption">_getOption</a></li><li><a href="global.html#_isValidUTF8">_isValidUTF8</a></li><li><a href="global.html#_mask">_mask</a></li><li><a href="global.html#_next">_next</a></li><li><a href="global.html#_orFailError">_orFailError</a></li><li><a href="global.html#_populate">_populate</a></li><li><a href="global.html#_toString">_toString</a></li><li><a href="global.html#_unmask">_unmask</a></li><li><a href="global.html#_update">_update</a></li><li><a href="global.html#_updateExec">_updateExec</a></li><li><a href="global.html#_updateParentPopulated">_updateParentPopulated</a></li><li><a href="global.html#abort">abort</a></li><li><a href="global.html#abortUpgrade">abortUpgrade</a></li><li><a href="global.html#acceptParams">acceptParams</a></li><li><a href="global.html#add">add</a></li><li><a href="global.html#addAzureParams">addAzureParams</a></li><li><a href="global.html#addContainerMetadata">addContainerMetadata</a></li><li><a href="global.html#addCursorFlag">addCursorFlag</a></li><li><a href="global.html#aliasFields">aliasFields</a></li><li><a href="global.html#alladdrs">alladdrs</a></li><li><a href="global.html#anymatch">anymatch</a></li><li><a href="global.html#app">app</a></li><li><a href="global.html#append">append</a></li><li><a href="global.html#application">application</a></li><li><a href="global.html#applyGetters">applyGetters</a></li><li><a href="global.html#applyHooks">applyHooks</a></li><li><a href="global.html#applyQueryMethods">applyQueryMethods</a></li><li><a href="global.html#applyRetryableWrites">applyRetryableWrites</a></li><li><a href="global.html#applySchemaTypeTransforms">applySchemaTypeTransforms</a></li><li><a href="global.html#applySession">applySession</a></li><li><a href="global.html#applyVirtuals">applyVirtuals</a></li><li><a href="global.html#applyVirtualsToChildren">applyVirtualsToChildren</a></li><li><a href="global.html#applyVirtualsToDoc">applyVirtualsToDoc</a></li><li><a href="global.html#arrayBufferToBuffer">arrayBufferToBuffer</a></li><li><a href="global.html#arrayFlatten">arrayFlatten</a></li><li><a href="global.html#arrayStrictEqual">arrayStrictEqual</a></li><li><a href="global.html#arrayToObject">arrayToObject</a></li><li><a href="global.html#ascending">ascending</a></li><li><a href="global.html#assert">assert</a></li><li><a href="global.html#assertOptions">assertOptions</a></li><li><a href="global.html#assignRawDocsToIdStructure">assignRawDocsToIdStructure</a></li><li><a href="global.html#async">async</a></li><li><a href="global.html#attach">attach</a></li><li><a href="global.html#autoConnect">autoConnect</a></li><li><a href="global.html#autoSelectSocketOptions">autoSelectSocketOptions</a></li><li><a href="global.html#base">base</a></li><li><a href="global.html#baseMinusTMin">baseMinusTMin</a></li><li><a href="global.html#basePath">basePath</a></li><li><a href="global.html#binaryToString">binaryToString</a></li><li><a href="global.html#bodyParser">bodyParser</a></li><li><a href="global.html#braces">braces</a></li><li><a href="global.html#bson_1">bson_1</a></li><li><a href="global.html#bufferToString">bufferToString</a></li><li><a href="global.html#buildDeleteManyOperation">buildDeleteManyOperation</a></li><li><a href="global.html#buildDeleteOneOperation">buildDeleteOneOperation</a></li><li><a href="global.html#buildFullPath">buildFullPath</a></li><li><a href="global.html#buildInsertOneOperation">buildInsertOneOperation</a></li><li><a href="global.html#buildOperation">buildOperation</a></li><li><a href="global.html#buildReplaceOneOperation">buildReplaceOneOperation</a></li><li><a href="global.html#buildURL">buildURL</a></li><li><a href="global.html#buildUpdateManyOperation">buildUpdateManyOperation</a></li><li><a href="global.html#buildUpdateOneOperation">buildUpdateOneOperation</a></li><li><a href="global.html#byteToHex">byteToHex</a></li><li><a href="global.html#bytes">bytes</a></li><li><a href="global.html#calculateCheckDigit">calculateCheckDigit</a></li><li><a href="global.html#calculateDurationInMs">calculateDurationInMs</a></li><li><a href="global.html#callSiteLocation">callSiteLocation</a></li><li><a href="global.html#castOps">castOps</a></li><li><a href="global.html#castUpdateVal">castUpdateVal</a></li><li><a href="global.html#charset">charset</a></li><li><a href="global.html#checkDivergentArray">checkDivergentArray</a></li><li><a href="global.html#checkParentDomainMatch">checkParentDomainMatch</a></li><li><a href="global.html">checkRequired</a></li><li><a href="global.html#checkTLSOptions">checkTLSOptions</a></li><li><a href="global.html#checkValidKey">checkValidKey</a></li><li><a href="global.html#clean">clean</a></li><li><a href="global.html#clone">clone</a></li><li><a href="global.html#close">close</a></li><li><a href="global.html#coerce">coerce</a></li><li><a href="global.html#colors">colors</a></li><li><a href="global.html#colour">colour</a></li><li><a href="global.html#combineURLs">combineURLs</a></li><li><a href="global.html#command">command</a></li><li><a href="global.html#compareObjectId">compareObjectId</a></li><li><a href="global.html#compareTopologyVersion">compareTopologyVersion</a></li><li><a href="global.html#compile">compile</a></li><li><a href="global.html#compileETag">compileETag</a></li><li><a href="global.html#compileQueryParser">compileQueryParser</a></li><li><a href="global.html#compileTrust">compileTrust</a></li><li><a href="global.html#completeOne">completeOne</a></li><li><a href="global.html#compressCommand">compressCommand</a></li><li><a href="global.html#concat">concat</a></li><li><a href="global.html#config">config</a></li><li><a href="global.html#configureExplicitResourceManagement">configureExplicitResourceManagement</a></li><li><a href="global.html#configureResourceManagement">configureResourceManagement</a></li><li><a href="global.html#constructIndexDescriptionMap">constructIndexDescriptionMap</a></li><li><a href="global.html#consumeBody">consumeBody</a></li><li><a href="global.html#containsDotFile">containsDotFile</a></li><li><a href="global.html#containsNamespace">containsNamespace</a></li><li><a href="global.html#contentDisposition">contentDisposition</a></li><li><a href="global.html#contentRange">contentRange</a></li><li><a href="global.html#contentType">contentType</a></li><li><a href="global.html#contentstream">contentstream</a></li><li><a href="global.html#convertBody">convertBody</a></li><li><a href="global.html#convertDataDescriptorToAccessor">convertDataDescriptorToAccessor</a></li><li><a href="global.html#convertNewToReturnDocument">convertNewToReturnDocument</a></li><li><a href="global.html#convertTo_id">convertTo_id</a></li><li><a href="global.html#cookieNameRegExp">cookieNameRegExp</a></li><li><a href="global.html#cookieValueRegExp">cookieValueRegExp</a></li><li><a href="global.html#create">create</a></li><li><a href="global.html#createAndConnectServer">createAndConnectServer</a></li><li><a href="global.html#createApplication">createApplication</a></li><li><a href="global.html#createArgumentsString">createArgumentsString</a></li><li><a href="global.html#createCollection">createCollection</a></li><li><a href="global.html#createCollections">createCollections</a></li><li><a href="global.html#createDebug">createDebug</a></li><li><a href="global.html#createDeleteOperation">createDeleteOperation</a></li><li><a href="global.html#createError">createError</a></li><li><a href="global.html#createFSEventsInstance">createFSEventsInstance</a></li><li><a href="global.html#createFsWatchInstance">createFsWatchInstance</a></li><li><a href="global.html#createHeadersLenient">createHeadersLenient</a></li><li><a href="global.html#createInstance">createInstance</a></li><li><a href="global.html#createModel">createModel</a></li><li><a href="global.html#createPattern">createPattern</a></li><li><a href="global.html#createStackString">createStackString</a></li><li><a href="global.html#createStdioLogger">createStdioLogger</a></li><li><a href="global.html#createUpdateOperation">createUpdateOperation</a></li><li><a href="global.html#createWebSocketStream">createWebSocketStream</a></li><li><a href="global.html#createWritableStdioStream">createWritableStdioStream</a></li><li><a href="global.html#crypto">crypto</a></li><li><a href="global.html#debug">debug</a></li><li><a href="global.html#decideModelByObject">decideModelByObject</a></li><li><a href="global.html#decode">decode</a></li><li><a href="global.html#decodeBase64Packet">decodeBase64Packet</a></li><li><a href="global.html#decodePacket">decodePacket</a></li><li><a href="global.html#decompressResponse">decompressResponse</a></li><li><a href="global.html#deconstructPacket">deconstructPacket</a></li><li><a href="global.html#decorate">decorate</a></li><li><a href="global.html#decorateDecryptionResult">decorateDecryptionResult</a></li><li><a href="global.html#decorateWithCollation">decorateWithCollation</a></li><li><a href="global.html#decorateWithExplain">decorateWithExplain</a></li><li><a href="global.html#decorateWithReadConcern">decorateWithReadConcern</a></li><li><a href="global.html#deepCopy">deepCopy</a></li><li><a href="global.html#deepEqual">deepEqual</a></li><li><a href="global.html#deepToMap">deepToMap</a></li><li><a href="global.html#defaultLogTransform">defaultLogTransform</a></li><li><a href="global.html#defaultMessage">defaultMessage</a></li><li><a href="global.html#defer">defer</a></li><li><a href="global.html#defineKey">defineKey</a></li><li><a href="global.html#depd">depd</a></li><li><a href="global.html#deprecate">deprecate</a></li><li><a href="global.html#descending">descending</a></li><li><a href="global.html#destroy">destroy</a></li><li><a href="global.html#destroyServer">destroyServer</a></li><li><a href="global.html#dir">dir</a></li><li><a href="global.html#disable">disable</a></li><li><a href="global.html#dispatchBeforeRedirect">dispatchBeforeRedirect</a></li><li><a href="global.html#dispatchRequest">dispatchRequest</a></li><li><a href="global.html#domainValueRegExp">domainValueRegExp</a></li><li><a href="global.html#drainTimerQueue">drainTimerQueue</a></li><li><a href="global.html#dropCollection">dropCollection</a></li><li><a href="global.html#dropDatabase">dropDatabase</a></li><li><a href="global.html#dump">dump</a></li><li><a href="global.html#each">each</a></li><li><a href="global.html#eachAsync">eachAsync</a></li><li><a href="global.html#emitWarning">emitWarning</a></li><li><a href="global.html#emitWarningOnce">emitWarningOnce</a></li><li><a href="global.html#emitterMethods">emitterMethods</a></li><li><a href="global.html#enable">enable</a></li><li><a href="global.html#enabled">enabled</a></li><li><a href="global.html#encloseBrace">encloseBrace</a></li><li><a href="global.html#encode">encode</a></li><li><a href="global.html#encode$1">encode$1</a></li><li><a href="global.html#encodeBase64Packet">encodeBase64Packet</a></li><li><a href="global.html#encodeBuffer">encodeBuffer</a></li><li><a href="global.html#encodePacket">encodePacket</a></li><li><a href="global.html#encodePayload">encodePayload</a></li><li><a href="global.html#encodePayloadAsBinary">encodePayloadAsBinary</a></li><li><a href="global.html#encodeUrl">encodeUrl</a></li><li><a href="global.html#endsWith">endsWith</a></li><li><a href="global.html#enumToString">enumToString</a></li><li><a href="global.html#err">err</a></li><li><a href="global.html#errorStrictEqual">errorStrictEqual</a></li><li><a href="global.html#errors">errors</a></li><li><a href="global.html#escapeHtml">escapeHtml</a></li><li><a href="global.html#escapeNode">escapeNode</a></li><li><a href="global.html#etag">etag</a></li><li><a href="global.html#exceedsLimit">exceedsLimit</a></li><li><a href="global.html#exec">exec</a></li><li><a href="global.html#execFromPackage">execFromPackage</a></li><li><a href="global.html#executeOperation">executeOperation</a></li><li><a href="global.html#expandRange">expandRange</a></li><li><a href="global.html#expires">expires</a></li><li><a href="global.html#exportNodeCompatibleHeaders">exportNodeCompatibleHeaders</a></li><li><a href="global.html#extend">extend</a></li><li><a href="global.html#extendedparser">extendedparser</a></li><li><a href="global.html#extension">extension</a></li><li><a href="global.html#extractCommand">extractCommand</a></li><li><a href="global.html#extractContentType">extractContentType</a></li><li><a href="global.html#family">family</a></li><li><a href="global.html#familySync">familySync</a></li><li><a href="global.html#fd">fd</a></li><li><a href="global.html#fetch">fetch</a></li><li><a href="global.html#fetchAzureKMSToken">fetchAzureKMSToken</a></li><li><a href="global.html#filterOptions">filterOptions</a></li><li><a href="global.html#finalhandler">finalhandler</a></li><li><a href="global.html#find">find</a></li><li><a href="global.html#finishCommandDocument">finishCommandDocument</a></li><li><a href="global.html#finisher">finisher</a></li><li><a href="global.html#first">first</a></li><li><a href="global.html#flatten">flatten</a></li><li><a href="global.html#flattenForever">flattenForever</a></li><li><a href="global.html#flattenWithDepth">flattenWithDepth</a></li><li><a href="global.html#fmtLong">fmtLong</a></li><li><a href="global.html#fmtShort">fmtShort</a></li><li><a href="global.html#forEach">forEach</a></li><li><a href="global.html#forEachEntry">forEachEntry</a></li><li><a href="global.html#formDataToJSON">formDataToJSON</a></li><li><a href="global.html#format">format</a></li><li><a href="global.html#formatArgs">formatArgs</a></li><li><a href="global.html#formatColor">formatColor</a></li><li><a href="global.html#formatLocation">formatLocation</a></li><li><a href="global.html#formatMessage">formatMessage</a></li><li><a href="global.html#formatPlain">formatPlain</a></li><li><a href="global.html#formatSort">formatSort</a></li><li><a href="global.html#formatters">formatters</a></li><li><a href="global.html#forwarded">forwarded</a></li><li><a href="global.html#freezeMethods">freezeMethods</a></li><li><a href="global.html#fresh">fresh</a></li><li><a href="global.html#fsWatchBroadcast">fsWatchBroadcast</a></li><li><a href="global.html#get">get</a></li><li><a href="global.html#getAzureTokenData">getAzureTokenData</a></li><li><a href="global.html#getCharset">getCharset</a></li><li><a href="global.html#getContainerMetadata">getContainerMetadata</a></li><li><a href="global.html#getCredentials">getCredentials</a></li><li><a href="global.html#getFAASEnv">getFAASEnv</a></li><li><a href="global.html#getGcpTokenData">getGcpTokenData</a></li><li><a href="global.html#getIndexes">getIndexes</a></li><li><a href="global.html#getMongoDBClientEncryption">getMongoDBClientEncryption</a></li><li><a href="global.html#getNodeRequestOptions">getNodeRequestOptions</a></li><li><a href="global.html#getOutputLength">getOutputLength</a></li><li><a href="global.html#getPositionWeightThroughLengthAndIndex">getPositionWeightThroughLengthAndIndex</a></li><li><a href="global.html#getPositionalPathType">getPositionalPathType</a></li><li><a href="global.html#getProxyForUrl">getProxyForUrl</a></li><li><a href="global.html#getRawBody">getRawBody</a></li><li><a href="global.html#getRuntimeInfo">getRuntimeInfo</a></li><li><a href="global.html#getStack">getStack</a></li><li><a href="global.html#getTasks">getTasks</a></li><li><a href="global.html#getTimestampsOpt">getTimestampsOpt</a></li><li><a href="global.html#getTopology">getTopology</a></li><li><a href="global.html#getTotalBytes">getTotalBytes</a></li><li><a href="global.html#getValue">getValue</a></li><li><a href="global.html#getcontenttype">getcontenttype</a></li><li><a href="global.html#handle$in">handle$in</a></li><li><a href="global.html#handleAtomics">handleAtomics</a></li><li><a href="global.html#handleSingle">handleSingle</a></li><li><a href="global.html#has">has</a></li><li><a href="global.html#hasAtomicOperators">hasAtomicOperators</a></li><li><a href="global.html#hasKey">hasKey</a></li><li><a href="global.html#hasOnlyValidCountryCodes">hasOnlyValidCountryCodes</a></li><li><a href="global.html#hasSessionSupport">hasSessionSupport</a></li><li><a href="global.html#hasStandardBrowserEnv">hasStandardBrowserEnv</a></li><li><a href="global.html#hasStandardBrowserWebWorkerEnv">hasStandardBrowserWebWorkerEnv</a></li><li><a href="global.html#hasValidIbanChecksum">hasValidIbanChecksum</a></li><li><a href="global.html#hasValidIbanFormat">hasValidIbanFormat</a></li><li><a href="global.html#hasbody">hasbody</a></li><li><a href="global.html#hex2buffer">hex2buffer</a></li><li><a href="global.html#hostMatchesWildcards">hostMatchesWildcards</a></li><li><a href="global.html#ibanRegexThroughCountryCode">ibanRegexThroughCountryCode</a></li><li><a href="global.html#idGetter">idGetter</a></li><li><a href="global.html#inherits">inherits</a></li><li><a href="global.html#init">init</a></li><li><a href="global.html#inspectOpts">inspectOpts</a></li><li><a href="global.html#inspectable">inspectable</a></li><li><a href="global.html#inspectorLog">inspectorLog</a></li><li><a href="global.html#invalidTokenRegex">invalidTokenRegex</a></li><li><a href="global.html#isAbsolute">isAbsolute</a></li><li><a href="global.html#isAbsoluteURL">isAbsoluteURL</a></li><li><a href="global.html#isArgumentsObject">isArgumentsObject</a></li><li><a href="global.html#isArrayBuffer">isArrayBuffer</a></li><li><a href="global.html#isArrayBufferView">isArrayBufferView</a></li><li><a href="global.html#isAxiosError$1">isAxiosError$1</a></li><li><a href="global.html#isBlob">isBlob</a></li><li><a href="global.html#isBoolean">isBoolean</a></li><li><a href="global.html#isBsonType">isBsonType</a></li><li><a href="global.html#isBuffer">isBuffer</a></li><li><a href="global.html#isCallbackResultInvalid">isCallbackResultInvalid</a></li><li><a href="global.html#isCanadianSIN">isCanadianSIN</a></li><li><a href="global.html#isDate">isDate</a></li><li><a href="global.html#isEAN">isEAN</a></li><li><a href="global.html#isEmptyCredentials">isEmptyCredentials</a></li><li><a href="global.html#isEmptyObject">isEmptyObject</a></li><li><a href="global.html#isEndpointResultValid">isEndpointResultValid</a></li><li><a href="global.html#isErrorResponse">isErrorResponse</a></li><li><a href="global.html#isFile">isFile</a></li><li><a href="global.html#isFileList">isFileList</a></li><li><a href="global.html#isFinished">isFinished</a></li><li><a href="global.html#isFlatArray">isFlatArray</a></li><li><a href="global.html#isFormData">isFormData</a></li><li><a href="global.html#isFunction">isFunction</a></li><li><a href="global.html#isHello">isHello</a></li><li><a href="global.html#isHostMatch">isHostMatch</a></li><li><a href="global.html#isInvalidBrace">isInvalidBrace</a></li><li><a href="global.html#isInvalidDayOfMonth">isInvalidDayOfMonth</a></li><li><a href="global.html#isInvalidHour">isInvalidHour</a></li><li><a href="global.html#isInvalidMinute">isInvalidMinute</a></li><li><a href="global.html#isInvalidMonth">isInvalidMonth</a></li><li><a href="global.html#isInvalidSecond">isInvalidSecond</a></li><li><a href="global.html#isInvalidWeekDay">isInvalidWeekDay</a></li><li><a href="global.html#isMeta">isMeta</a></li><li><a href="global.html#isMongooseType">isMongooseType</a></li><li><a href="global.html#isNativeObject">isNativeObject</a></li><li><a href="global.html#isNonBuiltinObject">isNonBuiltinObject</a></li><li><a href="global.html#isNonGlibcLinux">isNonGlibcLinux</a></li><li><a href="global.html#isNonGlibcLinuxSync">isNonGlibcLinuxSync</a></li><li><a href="global.html#isNullOrUndefined">isNullOrUndefined</a></li><li><a href="global.html#isNumber">isNumber</a></li><li><a href="global.html#isObject">isObject</a></li><li><a href="global.html#isObjectIdOrHexString">isObjectIdOrHexString</a></li><li><a href="global.html#isOpenOrClose">isOpenOrClose</a></li><li><a href="global.html#isOperator">isOperator</a></li><li><a href="global.html#isPOJO">isPOJO</a></li><li><a href="global.html#isPair">isPair</a></li><li><a href="global.html#isPassportNumber">isPassportNumber</a></li><li><a href="global.html#isPlainObject">isPlainObject</a></li><li><a href="global.html#isPopulatedObject">isPopulatedObject</a></li><li><a href="global.html#isPromiseLike">isPromiseLike</a></li><li><a href="global.html#isRegExp">isRegExp</a></li><li><a href="global.html#isRequest">isRequest</a></li><li><a href="global.html#isRetryableReadError">isRetryableReadError</a></li><li><a href="global.html#isRetryableWritesEnabled">isRetryableWritesEnabled</a></li><li><a href="global.html#isSDAMUnrecoverableError">isSDAMUnrecoverableError</a></li><li><a href="global.html#isSameProtocol">isSameProtocol</a></li><li><a href="global.html#isSpecCompliantForm">isSpecCompliantForm</a></li><li><a href="global.html#isStream">isStream</a></li><li><a href="global.html#isString">isString</a></li><li><a href="global.html#isTypedArray">isTypedArray</a></li><li><a href="global.html#isURLSearchParams">isURLSearchParams</a></li><li><a href="global.html#isUint8Array">isUint8Array</a></li><li><a href="global.html#isUndefined">isUndefined</a></li><li><a href="global.html#isValidExpression">isValidExpression</a></li><li><a href="global.html#isValidObjectId">isValidObjectId</a></li><li><a href="global.html#isValidStatusCode">isValidStatusCode</a></li><li><a href="global.html#isVisitable">isVisitable</a></li><li><a href="global.html#isignored">isignored</a></li><li><a href="global.html#isstats">isstats</a></li><li><a href="global.html#istraced">istraced</a></li><li><a href="global.html#iter">iter</a></li><li><a href="global.html#iterate">iterate</a></li><li><a href="global.html#json">json</a></li><li><a href="global.html#kBeforeHandshake">kBeforeHandshake</a></li><li><a href="global.html#kCancellationToken">kCancellationToken</a></li><li><a href="global.html#kCancelled">kCancelled</a></li><li><a href="global.html#kCheckedOut">kCheckedOut</a></li><li><a href="global.html#kClosed">kClosed</a></li><li><a href="global.html#kConnectionCounter">kConnectionCounter</a></li><li><a href="global.html#kConnections">kConnections</a></li><li><a href="global.html#kCursorStream">kCursorStream</a></li><li><a href="global.html#kDecorateResult">kDecorateResult</a></li><li><a href="global.html#kDecoratedKeys">kDecoratedKeys</a></li><li><a href="global.html#kErrorLabels">kErrorLabels</a></li><li><a href="global.html#kGeneration">kGeneration</a></li><li><a href="global.html#kInternalClient">kInternalClient</a></li><li><a href="global.html#kMetrics">kMetrics</a></li><li><a href="global.html#kMinPoolSizeTimer">kMinPoolSizeTimer</a></li><li><a href="global.html#kMode">kMode</a></li><li><a href="global.html#kMonitorId">kMonitorId</a></li><li><a href="global.html#kOptions">kOptions</a></li><li><a href="global.html#kPending">kPending</a></li><li><a href="global.html#kPinnedConnection">kPinnedConnection</a></li><li><a href="global.html#kPoolState">kPoolState</a></li><li><a href="global.html#kProcessingWaitQueue">kProcessingWaitQueue</a></li><li><a href="global.html#kServer">kServer</a></li><li><a href="global.html#kServerError">kServerError</a></li><li><a href="global.html#kServerSession">kServerSession</a></li><li><a href="global.html#kServiceGenerations">kServiceGenerations</a></li><li><a href="global.html#kSession">kSession</a></li><li><a href="global.html#kSnapshotEnabled">kSnapshotEnabled</a></li><li><a href="global.html#kSnapshotTime">kSnapshotTime</a></li><li><a href="global.html#kTxnNumberIncrement">kTxnNumberIncrement</a></li><li><a href="global.html#kWaitQueue">kWaitQueue</a></li><li><a href="global.html#keys">keys</a></li><li><a href="global.html#last">last</a></li><li><a href="global.html#latencyWindowReducer">latencyWindowReducer</a></li><li><a href="global.html#listCollections">listCollections</a></li><li><a href="global.html#listGet">listGet</a></li><li><a href="global.html#listGetNode">listGetNode</a></li><li><a href="global.html#listHas">listHas</a></li><li><a href="global.html#listSet">listSet</a></li><li><a href="global.html#listen">listen</a></li><li><a href="global.html#load">load</a></li><li><a href="global.html#loadAWSCredentials">loadAWSCredentials</a></li><li><a href="global.html#loadAzureCredentials">loadAzureCredentials</a></li><li><a href="global.html#loadFile">loadFile</a></li><li><a href="global.html#loadGCPCredentials">loadGCPCredentials</a></li><li><a href="global.html#loadKrb">loadKrb</a></li><li><a href="global.html#loadZstd">loadZstd</a></li><li><a href="global.html#localstorage">localstorage</a></li><li><a href="global.html#log">log</a></li><li><a href="global.html#lookup">lookup</a></li><li><a href="global.html#makeClientMetadata">makeClientMetadata</a></li><li><a href="global.html#makeCounter">makeCounter</a></li><li><a href="global.html#makeLean">makeLean</a></li><li><a href="global.html#makeStateMachine">makeStateMachine</a></li><li><a href="global.html#map">map</a></li><li><a href="global.html#mapToMap">mapToMap</a></li><li><a href="global.html#matchAll">matchAll</a></li><li><a href="global.html#matchPatterns">matchPatterns</a></li><li><a href="global.html#matchesParentDomain">matchesParentDomain</a></li><li><a href="global.html#maxInt">maxInt</a></li><li><a href="global.html#maxStalenessReducer">maxStalenessReducer</a></li><li><a href="global.html#maxWireVersion">maxWireVersion</a></li><li><a href="global.html#maybeRemoveId">maybeRemoveId</a></li><li><a href="global.html#merge">merge</a></li><li><a href="global.html#mergeBatchResults">mergeBatchResults</a></li><li><a href="global.html#mergeClone">mergeClone</a></li><li><a href="global.html#mergeConfig$1">mergeConfig$1</a></li><li><a href="global.html#mergeOptions">mergeOptions</a></li><li><a href="global.html#methods">methods</a></li><li><a href="global.html#mime">mime</a></li><li><a href="global.html#minimize">minimize</a></li><li><a href="global.html#mixin">mixin</a></li><li><a href="global.html#mockS3Http">mockS3Http</a></li><li><a href="global.html#model">model</a></li><li><a href="global.html#mongoose">mongoose</a></li><li><a href="global.html#mpath">mpath</a></li><li><a href="global.html#multilineRegexp">multilineRegexp</a></li><li><a href="global.html#names">names</a></li><li><a href="global.html#newObject">newObject</a></li><li><a href="global.html#next">next</a></li><li><a href="global.html#noCastOps">noCastOps</a></li><li><a href="global.html#noPasswordAuthMechanisms">noPasswordAuthMechanisms</a></li><li><a href="global.html#nodemon">nodemon</a></li><li><a href="global.html#nodemonOption">nodemonOption</a></li><li><a href="global.html#normalizeHintField">normalizeHintField</a></li><li><a href="global.html#normalizeJsonSyntaxError">normalizeJsonSyntaxError</a></li><li><a href="global.html#normalizeType">normalizeType</a></li><li><a href="global.html#normalizeTypes">normalizeTypes</a></li><li><a href="global.html#notImplemented">notImplemented</a></li><li><a href="global.html#now">now</a></li><li><a href="global.html#ns">ns</a></li><li><a href="global.html#numberOps">numberOps</a></li><li><a href="global.html#object">object</a></li><li><a href="global.html#objectToMap">objectToMap</a></li><li><a href="global.html#omitUndefined">omitUndefined</a></li><li><a href="global.html#onData">onData</a></li><li><a href="global.html#onFinished">onFinished</a></li><li><a href="global.html#once">once</a></li><li><a href="global.html#operand">operand</a></li><li><a href="global.html#originalurl">originalurl</a></li><li><a href="global.html#overwriteMiddlewareResult">overwriteMiddlewareResult</a></li><li><a href="global.html#packets">packets</a></li><li><a href="global.html#pairToMap">pairToMap</a></li><li><a href="global.html#parallel">parallel</a></li><li><a href="global.html#paramRegExp">paramRegExp</a></li><li><a href="global.html#parameterCount">parameterCount</a></li><li><a href="global.html#parentArray">parentArray</a></li><li><a href="global.html#parse">parse</a></li><li><a href="global.html#parseDelay">parseDelay</a></li><li><a href="global.html#parseHeaders">parseHeaders</a></li><li><a href="global.html#parsePropPath">parsePropPath</a></li><li><a href="global.html#parseResponse">parseResponse</a></li><li><a href="global.html#parseSeverityFromString">parseSeverityFromString</a></li><li><a href="global.html#parseURL">parseURL</a></li><li><a href="global.html#parseUtf8ValidationOption">parseUtf8ValidationOption</a></li><li><a href="global.html#parser">parser</a></li><li><a href="global.html#parsers">parsers</a></li><li><a href="global.html#parseurl">parseurl</a></li><li><a href="global.html#passportRegexByCountryCode">passportRegexByCountryCode</a></li><li><a href="global.html#pathToRegexp">pathToRegexp</a></li><li><a href="global.html#pathValueRegExp">pathValueRegExp</a></li><li><a href="global.html#picomatch">picomatch</a></li><li><a href="global.html#plural">plural</a></li><li><a href="global.html#pluralization">pluralization</a></li><li><a href="global.html#pluralize">pluralize</a></li><li><a href="global.html#polling">polling</a></li><li><a href="global.html#populate">populate</a></li><li><a href="global.html#preferredCharsets">preferredCharsets</a></li><li><a href="global.html#preferredEncodings">preferredEncodings</a></li><li><a href="global.html#preferredLanguages">preferredLanguages</a></li><li><a href="global.html#preferredMediaTypes">preferredMediaTypes</a></li><li><a href="global.html#prepareDirection">prepareDirection</a></li><li><a href="global.html#prepareDiscriminatorCriteria">prepareDiscriminatorCriteria</a></li><li><a href="global.html#prepareHandshakeDocument">prepareHandshakeDocument</a></li><li><a href="global.html#prepareObjectStackTrace">prepareObjectStackTrace</a></li><li><a href="global.html#preparePopulationOptions">preparePopulationOptions</a></li><li><a href="global.html#preparePopulationOptionsMQ">preparePopulationOptionsMQ</a></li><li><a href="global.html#prepareRequest">prepareRequest</a></li><li><a href="global.html#prevTime">prevTime</a></li><li><a href="global.html#prog">prog</a></li><li><a href="global.html#proto">proto</a></li><li><a href="global.html#protocol">protocol</a></li><li><a href="global.html#proxyaddr">proxyaddr</a></li><li><a href="global.html#punycode">punycode</a></li><li><a href="global.html#qescRegExp">qescRegExp</a></li><li><a href="global.html#qstring">qstring</a></li><li><a href="global.html#quoteRegExp">quoteRegExp</a></li><li><a href="global.html#rangeParser">rangeParser</a></li><li><a href="global.html#rangeToPattern">rangeToPattern</a></li><li><a href="global.html#raw">raw</a></li><li><a href="global.html#readConcern">readConcern</a></li><li><a href="global.html#readFile">readFile</a></li><li><a href="global.html#readFileSync">readFileSync</a></li><li><a href="global.html#readPref">readPref</a></li><li><a href="global.html#readPreferenceServerSelector">readPreferenceServerSelector</a></li><li><a href="global.html#readStream">readStream</a></li><li><a href="global.html#readdirp">readdirp</a></li><li><a href="global.html#reconstructPacket">reconstructPacket</a></li><li><a href="global.html#reduce">reduce</a></li><li><a href="global.html#refreshKMSCredentials">refreshKMSCredentials</a></li><li><a href="global.html#regexPunycode">regexPunycode</a></li><li><a href="global.html#registerRemoveListener">registerRemoveListener</a></li><li><a href="global.html#relative">relative</a></li><li><a href="global.html#removeBrackets">removeBrackets</a></li><li><a href="global.html#removedMiddlewares">removedMiddlewares</a></li><li><a href="global.html#renameObjKey">renameObjKey</a></li><li><a href="global.html#renderKey">renderKey</a></li><li><a href="global.html#req">req</a></li><li><a href="global.html#res">res</a></li><li><a href="global.html#resolveBSONOptions">resolveBSONOptions</a></li><li><a href="global.html#resolveIndexDescription">resolveIndexDescription</a></li><li><a href="global.html#resolveLogPath">resolveLogPath</a></li><li><a href="global.html#resolveOptions">resolveOptions</a></li><li><a href="global.html#resolveSRVRecord">resolveSRVRecord</a></li><li><a href="global.html#rewind">rewind</a></li><li><a href="global.html#runJob">runJob</a></li><li><a href="global.html#runValidatorsOnUpdate">runValidatorsOnUpdate</a></li><li><a href="global.html#s">s</a></li><li><a href="global.html#sameServerSelector">sameServerSelector</a></li><li><a href="global.html#sanitizeFilter">sanitizeFilter</a></li><li><a href="global.html#save">save</a></li><li><a href="global.html#scan">scan</a></li><li><a href="global.html#schedule">schedule</a></li><li><a href="global.html#scopePaths">scopePaths</a></li><li><a href="global.html#secondaryWritableServerSelector">secondaryWritableServerSelector</a></li><li><a href="global.html#selectColor">selectColor</a></li><li><a href="global.html#semanticVersioningRegex">semanticVersioningRegex</a></li><li><a href="global.html#send">send</a></li><li><a href="global.html#serial">serial</a></li><li><a href="global.html#serialOrdered">serialOrdered</a></li><li><a href="global.html#serialize">serialize</a></li><li><a href="global.html#serveStatic">serveStatic</a></li><li><a href="global.html#set">set</a></li><li><a href="global.html#setCharset">setCharset</a></li><li><a href="global.html#setDefaultsOnInsert">setDefaultsOnInsert</a></li><li><a href="global.html#setDifference">setDifference</a></li><li><a href="global.html#setFSEventsListener">setFSEventsListener</a></li><li><a href="global.html#setFsWatchFileListener">setFsWatchFileListener</a></li><li><a href="global.html#setFsWatchListener">setFsWatchListener</a></li><li><a href="global.html#setProxy">setProxy</a></li><li><a href="global.html#setValue">setValue</a></li><li><a href="global.html#settle">settle</a></li><li><a href="global.html#setup">setup</a></li><li><a href="global.html#sha1">sha1</a></li><li><a href="global.html#shouldSkipVersioning">shouldSkipVersioning</a></li><li><a href="global.html#shuffle">shuffle</a></li><li><a href="global.html#sign">sign</a></li><li><a href="global.html#simpleparser">simpleparser</a></li><li><a href="global.html#skipMiddlewareFunction">skipMiddlewareFunction</a></li><li><a href="global.html#special">special</a></li><li><a href="global.html#speedometer">speedometer</a></li><li><a href="global.html#splitType">splitType</a></li><li><a href="global.html#spread$1">spread$1</a></li><li><a href="global.html#squashError">squashError</a></li><li><a href="global.html#startCommandDocument">startCommandDocument</a></li><li><a href="global.html#startSession">startSession</a></li><li><a href="global.html#state">state</a></li><li><a href="global.html#status">status</a></li><li><a href="global.html#streamer">streamer</a></li><li><a href="global.html#stringToArgs">stringToArgs</a></li><li><a href="global.html#stringToBinary">stringToBinary</a></li><li><a href="global.html#stringToBuffer">stringToBuffer</a></li><li><a href="global.html#stringToPath">stringToPath</a></li><li><a href="global.html#stringifySafely">stringifySafely</a></li><li><a href="global.html#stringifyWithMaxLen">stringifyWithMaxLen</a></li><li><a href="global.html#stringsToMap">stringsToMap</a></li><li><a href="global.html#stripBOM">stripBOM</a></li><li><a href="global.html#subtypeNameRegExp">subtypeNameRegExp</a></li><li><a href="global.html#supportsRetryableWrites">supportsRetryableWrites</a></li><li><a href="global.html#syntaxError">syntaxError</a></li><li><a href="global.html#tagSetMatch">tagSetMatch</a></li><li><a href="global.html#tagSetReducer">tagSetReducer</a></li><li><a href="global.html#terminator">terminator</a></li><li><a href="global.html#text">text</a></li><li><a href="global.html#throttle">throttle</a></li><li><a href="global.html#throwIfCancellationRequested">throwIfCancellationRequested</a></li><li><a href="global.html#throwIfWriteConcernError">throwIfWriteConcernError</a></li><li><a href="global.html#tick">tick</a></li><li><a href="global.html#toArray">toArray</a></li><li><a href="global.html#toArrayBuffer">toArrayBuffer</a></li><li><a href="global.html#toBuffer">toBuffer</a></li><li><a href="global.html#toCollectionName">toCollectionName</a></li><li><a href="global.html#toFlatObject">toFlatObject</a></li><li><a href="global.html#toFormData">toFormData</a></li><li><a href="global.html#toFormData$1">toFormData$1</a></li><li><a href="global.html#toIdentifier">toIdentifier</a></li><li><a href="global.html#toObject">toObject</a></li><li><a href="global.html#tokenCache">tokenCache</a></li><li><a href="global.html#topologyTypeFromOptions">topologyTypeFromOptions</a></li><li><a href="global.html#transaction">transaction</a></li><li><a href="global.html#transformData">transformData</a></li><li><a href="global.html#trim">trim</a></li><li><a href="global.html#trusted">trusted</a></li><li><a href="global.html#tryOperation">tryOperation</a></li><li><a href="global.html#tty">tty</a></li><li><a href="global.html#typeChecker">typeChecker</a></li><li><a href="global.html#typeOf">typeOf</a></li><li><a href="global.html#typeis">typeis</a></li><li><a href="global.html#typeofrequest">typeofrequest</a></li><li><a href="global.html#ukUaCheck">ukUaCheck</a></li><li><a href="global.html#uncountables">uncountables</a></li><li><a href="global.html#unpipe">unpipe</a></li><li><a href="global.html#unset">unset</a></li><li><a href="global.html#unsign">unsign</a></li><li><a href="global.html#updateServers">updateServers</a></li><li><a href="global.html#urlencoded">urlencoded</a></li><li><a href="global.html#useColors">useColors</a></li><li><a href="global.html#utf8">utf8</a></li><li><a href="global.html#utils">utils</a></li><li><a href="global.html#uuidV4">uuidV4</a></li><li><a href="global.html#validHdrChars">validHdrChars</a></li><li><a href="global.html#validate">validate</a></li><li><a href="global.html#validateDisplayName">validateDisplayName</a></li><li><a href="global.html#validateFields">validateFields</a></li><li><a href="global.html#validateLoadBalancedOptions">validateLoadBalancedOptions</a></li><li><a href="global.html#validateUpdate">validateUpdate</a></li><li><a href="global.html#valueFilter">valueFilter</a></li><li><a href="global.html#vary">vary</a></li><li><a href="global.html#version">version</a></li><li><a href="global.html#versionSync">versionSync</a></li><li><a href="global.html#walkKeyPathValues">walkKeyPathValues</a></li><li><a href="global.html#walkUpdatePath">walkUpdatePath</a></li><li><a href="global.html#watch">watch</a></li><li><a href="global.html#wetag">wetag</a></li><li><a href="global.html#withSession">withSession</a></li><li><a href="global.html#wrapCallback">wrapCallback</a></li><li><a href="global.html#wrapIterator">wrapIterator</a></li><li><a href="global.html#wrapIteratorCallback">wrapIteratorCallback</a></li><li><a href="global.html#wrapfunction">wrapfunction</a></li><li><a href="global.html#wrapproperty">wrapproperty</a></li><li><a href="global.html#writableServerSelector">writableServerSelector</a></li><li><a href="global.html#writeToStream">writeToStream</a></li><li><a href="global.html#yeast">yeast</a></li><li><a href="global.html#zip">zip</a></li></ul>
+</nav>
+
+<br class="clear">
+
+<footer>
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 4.0.4</a> on Fri Dec 06 2024 14:28:51 GMT-0800 (Pacific Standard Time)
+</footer>
+
+<script> prettyPrint(); </script>
+<script src="scripts/linenumber.js"> </script>
+</body>
+</html>

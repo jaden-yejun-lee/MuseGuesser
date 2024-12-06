@@ -1,7 +1,7 @@
 const mongoose = require("mongoose");
 const userModel = require("./userModel");
 
-// Match Schema
+// Match class has game type, date, and player tuples
 const matchSchema = new mongoose.Schema({
     // game type: "Daily Challenge" or "Room" or "Single"
     gameType: String,

@@ -1,0 +1,2756 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>JSDoc: Source: mquery/lib/mquery.js</title>
+
+    <script src="scripts/prettify/prettify.js"> </script>
+    <script src="scripts/prettify/lang-css.js"> </script>
+    <!--[if lt IE 9]>
+      <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+    <link type="text/css" rel="stylesheet" href="styles/prettify-tomorrow.css">
+    <link type="text/css" rel="stylesheet" href="styles/jsdoc-default.css">
+</head>
+
+<body>
+
+<div id="main">
+
+    <h1 class="page-title">Source: mquery/lib/mquery.js</h1>
+
+    
+
+
+
+    
+    <section>
+        <article>
+            <pre class="prettyprint source linenums"><code>'use strict';
+
+/**
+ * Dependencies
+ */
+
+const assert = require('assert');
+const util = require('util');
+const utils = require('./utils');
+const debug = require('debug')('mquery');
+
+/**
+ * Query constructor used for building queries.
+ *
+ * #### Example:
+ *
+ *     var query = new Query({ name: 'mquery' });
+ *     query.setOptions({ collection: moduleCollection })
+ *     await query.where('age').gte(21).exec();
+ *
+ * @param {Object} [criteria] criteria for the query OR the collection instance to use
+ * @param {Object} [options]
+ * @api public
+ */
+
+function Query(criteria, options) {
+  if (!(this instanceof Query))
+    return new Query(criteria, options);
+
+  const proto = this.constructor.prototype;
+
+  this.op = proto.op || undefined;
+
+  this.options = Object.assign({}, proto.options);
+
+  this._conditions = proto._conditions
+    ? utils.clone(proto._conditions)
+    : {};
+
+  this._fields = proto._fields
+    ? utils.clone(proto._fields)
+    : undefined;
+
+  this._updateDoc = proto._updateDoc
+    ? utils.clone(proto._updateDoc)
+    : undefined;
+
+  this._path = proto._path || undefined;
+  this._distinctDoc = proto._distinctDoc || undefined;
+  this._collection = proto._collection || undefined;
+  this._traceFunction = proto._traceFunction || undefined;
+
+  if (options) {
+    this.setOptions(options);
+  }
+
+  if (criteria) {
+    this.find(criteria);
+  }
+}
+
+/**
+ * This is a parameter that the user can set which determines if mquery
+ * uses $within or $geoWithin for queries. It defaults to true which
+ * means $geoWithin will be used. If using MongoDB &lt; 2.4 you should
+ * set this to false.
+ *
+ * @api public
+ * @property use$geoWithin
+ */
+
+let $withinCmd = '$geoWithin';
+Object.defineProperty(Query, 'use$geoWithin', {
+  get: function() { return $withinCmd == '$geoWithin'; },
+  set: function(v) {
+    if (true === v) {
+      // mongodb >= 2.4
+      $withinCmd = '$geoWithin';
+    } else {
+      $withinCmd = '$within';
+    }
+  }
+});
+
+/**
+ * Converts this query to a constructor function with all arguments and options retained.
+ *
+ * #### Example:
+ *
+ *     // Create a query that will read documents with a "video" category from
+ *     // `aCollection` on the primary node in the replica-set unless it is down,
+ *     // in which case we'll read from a secondary node.
+ *     var query = mquery({ category: 'video' })
+ *     query.setOptions({ collection: aCollection, read: 'primaryPreferred' });
+ *
+ *     // create a constructor based off these settings
+ *     var Video = query.toConstructor();
+ *
+ *     // Video is now a subclass of mquery() and works the same way but with the
+ *     // default query parameters and options set.
+ *
+ *     // run a query with the previous settings but filter for movies with names
+ *     // that start with "Life".
+ *     Video().where({ name: /^Life/ }).exec(cb);
+ *
+ * @return {Query} new Query
+ * @api public
+ */
+
+Query.prototype.toConstructor = function toConstructor() {
+  function CustomQuery(criteria, options) {
+    if (!(this instanceof CustomQuery))
+      return new CustomQuery(criteria, options);
+    Query.call(this, criteria, options);
+  }
+
+  utils.inherits(CustomQuery, Query);
+
+  // set inherited defaults
+  const p = CustomQuery.prototype;
+
+  p.options = {};
+  p.setOptions(this.options);
+
+  p.op = this.op;
+  p._conditions = utils.clone(this._conditions);
+  p._fields = utils.clone(this._fields);
+  p._updateDoc = utils.clone(this._updateDoc);
+  p._path = this._path;
+  p._distinctDoc = this._distinctDoc;
+  p._collection = this._collection;
+  p._traceFunction = this._traceFunction;
+
+  return CustomQuery;
+};
+
+/**
+ * Sets query options.
+ *
+ * #### Options:
+ *
+ * - [tailable](http://www.mongodb.org/display/DOCS/Tailable+Cursors) *
+ * - [sort](http://www.mongodb.org/display/DOCS/Advanced+Queries#AdvancedQueries-%7B%7Bsort(\)%7D%7D) *
+ * - [limit](http://www.mongodb.org/display/DOCS/Advanced+Queries#AdvancedQueries-%7B%7Blimit%28%29%7D%7D) *
+ * - [skip](http://www.mongodb.org/display/DOCS/Advanced+Queries#AdvancedQueries-%7B%7Bskip%28%29%7D%7D) *
+ * - [maxTime](http://docs.mongodb.org/manual/reference/operator/meta/maxTimeMS/#op._S_maxTimeMS) *
+ * - [batchSize](http://www.mongodb.org/display/DOCS/Advanced+Queries#AdvancedQueries-%7B%7BbatchSize%28%29%7D%7D) *
+ * - [comment](http://www.mongodb.org/display/DOCS/Advanced+Queries#AdvancedQueries-%24comment) *
+ * - [hint](http://www.mongodb.org/display/DOCS/Advanced+Queries#AdvancedQueries-%24hint) *
+ * - [slaveOk](http://docs.mongodb.org/manual/applications/replication/#read-preference) *
+ * - [safe](http://www.mongodb.org/display/DOCS/getLastError+Command)
+ * - collection the collection to query against
+ *
+ * _* denotes a query helper method is also available_
+ *
+ * @param {Object} options
+ * @api public
+ */
+
+Query.prototype.setOptions = function(options) {
+  if (!(options &amp;&amp; utils.isObject(options)))
+    return this;
+
+  // set arbitrary options
+  const methods = utils.keys(options);
+  let method;
+
+  for (let i = 0; i &lt; methods.length; ++i) {
+    method = methods[i];
+
+    // use methods if exist (safer option manipulation)
+    if ('function' == typeof this[method]) {
+      const args = Array.isArray(options[method])
+        ? options[method]
+        : [options[method]];
+      this[method].apply(this, args);
+    } else {
+      this.options[method] = options[method];
+    }
+  }
+
+  return this;
+};
+
+/**
+ * Sets this Querys collection.
+ *
+ * @param {Collection} coll
+ * @return {Query} this
+ */
+
+Query.prototype.collection = function collection(coll) {
+  this._collection = new Query.Collection(coll);
+
+  return this;
+};
+
+/**
+ * Adds a collation to this op (MongoDB 3.4 and up)
+ *
+ * #### Example:
+ *
+ *     query.find().collation({ locale: "en_US", strength: 1 })
+ *
+ * @param {Object} value
+ * @return {Query} this
+ * @see MongoDB docs https://docs.mongodb.com/manual/reference/method/cursor.collation/#cursor.collation
+ * @api public
+ */
+
+Query.prototype.collation = function(value) {
+  this.options.collation = value;
+  return this;
+};
+
+/**
+ * Specifies a `$where` condition
+ *
+ * Use `$where` when you need to select documents using a JavaScript expression.
+ *
+ * #### Example:
+ *
+ *     query.$where('this.comments.length > 10 || this.name.length > 5')
+ *
+ *     query.$where(function () {
+ *       return this.comments.length > 10 || this.name.length > 5;
+ *     })
+ *
+ * @param {String|Function} js javascript string or function
+ * @return {Query} this
+ * @memberOf Query
+ * @method $where
+ * @api public
+ */
+
+Query.prototype.$where = function(js) {
+  this._conditions.$where = js;
+  return this;
+};
+
+/**
+ * Specifies a `path` for use with chaining.
+ *
+ * #### Example:
+ *
+ *     // instead of writing:
+ *     await User.find({age: {$gte: 21, $lte: 65}});
+ *
+ *     // we can instead write:
+ *     User.where('age').gte(21).lte(65);
+ *
+ *     // passing query conditions is permitted
+ *     User.find().where({ name: 'vonderful' })
+ *
+ *     // chaining
+ *     await User
+ *       .where('age').gte(21).lte(65)
+ *       .where('name', /^vonderful/i)
+ *       .where('friends').slice(10)
+ *       .exec()
+ *
+ * @param {String} [path]
+ * @param {Object} [val]
+ * @return {Query} this
+ * @api public
+ */
+
+Query.prototype.where = function() {
+  if (!arguments.length) return this;
+  if (!this.op) this.op = 'find';
+
+  const type = typeof arguments[0];
+
+  if ('string' == type) {
+    this._path = arguments[0];
+
+    if (2 === arguments.length) {
+      this._conditions[this._path] = arguments[1];
+    }
+
+    return this;
+  }
+
+  if ('object' == type &amp;&amp; !Array.isArray(arguments[0])) {
+    return this.merge(arguments[0]);
+  }
+
+  throw new TypeError('path must be a string or object');
+};
+
+/**
+ * Specifies the complementary comparison value for paths specified with `where()`
+ *
+ * #### Example:
+ *
+ *     User.where('age').equals(49);
+ *
+ *     // is the same as
+ *
+ *     User.where('age', 49);
+ *
+ * @param {Object} val
+ * @return {Query} this
+ * @api public
+ */
+
+Query.prototype.equals = function equals(val) {
+  this._ensurePath('equals');
+  const path = this._path;
+  this._conditions[path] = val;
+  return this;
+};
+
+/**
+ * Specifies the complementary comparison value for paths specified with `where()`
+ * This is alias of `equals`
+ *
+ * #### Example:
+ *
+ *     User.where('age').eq(49);
+ *
+ *     // is the same as
+ *
+ *     User.shere('age').equals(49);
+ *
+ *     // is the same as
+ *
+ *     User.where('age', 49);
+ *
+ * @param {Object} val
+ * @return {Query} this
+ * @api public
+ */
+
+Query.prototype.eq = function eq(val) {
+  this._ensurePath('eq');
+  const path = this._path;
+  this._conditions[path] = val;
+  return this;
+};
+
+/**
+ * Specifies arguments for an `$or` condition.
+ *
+ * #### Example:
+ *
+ *     query.or([{ color: 'red' }, { status: 'emergency' }])
+ *
+ * @param {Array} array array of conditions
+ * @return {Query} this
+ * @api public
+ */
+
+Query.prototype.or = function or(array) {
+  const or = this._conditions.$or || (this._conditions.$or = []);
+  if (!Array.isArray(array)) array = [array];
+  or.push.apply(or, array);
+  return this;
+};
+
+/**
+ * Specifies arguments for a `$nor` condition.
+ *
+ * #### Example:
+ *
+ *     query.nor([{ color: 'green' }, { status: 'ok' }])
+ *
+ * @param {Array} array array of conditions
+ * @return {Query} this
+ * @api public
+ */
+
+Query.prototype.nor = function nor(array) {
+  const nor = this._conditions.$nor || (this._conditions.$nor = []);
+  if (!Array.isArray(array)) array = [array];
+  nor.push.apply(nor, array);
+  return this;
+};
+
+/**
+ * Specifies arguments for a `$and` condition.
+ *
+ * #### Example:
+ *
+ *     query.and([{ color: 'green' }, { status: 'ok' }])
+ *
+ * @see $and http://docs.mongodb.org/manual/reference/operator/and/
+ * @param {Array} array array of conditions
+ * @return {Query} this
+ * @api public
+ */
+
+Query.prototype.and = function and(array) {
+  const and = this._conditions.$and || (this._conditions.$and = []);
+  if (!Array.isArray(array)) array = [array];
+  and.push.apply(and, array);
+  return this;
+};
+
+/**
+ * Specifies a $gt query condition.
+ *
+ * When called with one argument, the most recent path passed to `where()` is used.
+ *
+ * #### Example:
+ *
+ *     Thing.find().where('age').gt(21)
+ *
+ *     // or
+ *     Thing.find().gt('age', 21)
+ *
+ * @method gt
+ * @memberOf Query
+ * @param {String} [path]
+ * @param {Number} val
+ * @api public
+ */
+
+/**
+ * Specifies a $gte query condition.
+ *
+ * When called with one argument, the most recent path passed to `where()` is used.
+ *
+ * @method gte
+ * @memberOf Query
+ * @param {String} [path]
+ * @param {Number} val
+ * @api public
+ */
+
+/**
+ * Specifies a $lt query condition.
+ *
+ * When called with one argument, the most recent path passed to `where()` is used.
+ *
+ * @method lt
+ * @memberOf Query
+ * @param {String} [path]
+ * @param {Number} val
+ * @api public
+ */
+
+/**
+ * Specifies a $lte query condition.
+ *
+ * When called with one argument, the most recent path passed to `where()` is used.
+ *
+ * @method lte
+ * @memberOf Query
+ * @param {String} [path]
+ * @param {Number} val
+ * @api public
+ */
+
+/**
+ * Specifies a $ne query condition.
+ *
+ * When called with one argument, the most recent path passed to `where()` is used.
+ *
+ * @method ne
+ * @memberOf Query
+ * @param {String} [path]
+ * @param {Number} val
+ * @api public
+ */
+
+/**
+ * Specifies an $in query condition.
+ *
+ * When called with one argument, the most recent path passed to `where()` is used.
+ *
+ * @method in
+ * @memberOf Query
+ * @param {String} [path]
+ * @param {Number} val
+ * @api public
+ */
+
+/**
+ * Specifies an $nin query condition.
+ *
+ * When called with one argument, the most recent path passed to `where()` is used.
+ *
+ * @method nin
+ * @memberOf Query
+ * @param {String} [path]
+ * @param {Number} val
+ * @api public
+ */
+
+/**
+ * Specifies an $all query condition.
+ *
+ * When called with one argument, the most recent path passed to `where()` is used.
+ *
+ * @method all
+ * @memberOf Query
+ * @param {String} [path]
+ * @param {Number} val
+ * @api public
+ */
+
+/**
+ * Specifies a $size query condition.
+ *
+ * When called with one argument, the most recent path passed to `where()` is used.
+ *
+ * @method size
+ * @memberOf Query
+ * @param {String} [path]
+ * @param {Number} val
+ * @api public
+ */
+
+/**
+ * Specifies a $regex query condition.
+ *
+ * When called with one argument, the most recent path passed to `where()` is used.
+ *
+ * @method regex
+ * @memberOf Query
+ * @param {String} [path]
+ * @param {String|RegExp} val
+ * @api public
+ */
+
+/**
+ * Specifies a $maxDistance query condition.
+ *
+ * When called with one argument, the most recent path passed to `where()` is used.
+ *
+ * @method maxDistance
+ * @memberOf Query
+ * @param {String} [path]
+ * @param {Number} val
+ * @api public
+ */
+
+/*!
+ * gt, gte, lt, lte, ne, in, nin, all, regex, size, maxDistance
+ *
+ *     Thing.where('type').nin(array)
+ */
+
+'gt gte lt lte ne in nin all regex size maxDistance minDistance'.split(' ').forEach(function($conditional) {
+  Query.prototype[$conditional] = function() {
+    let path, val;
+
+    if (1 === arguments.length) {
+      this._ensurePath($conditional);
+      val = arguments[0];
+      path = this._path;
+    } else {
+      val = arguments[1];
+      path = arguments[0];
+    }
+
+    const conds = this._conditions[path] === null || typeof this._conditions[path] === 'object' ?
+      this._conditions[path] :
+      (this._conditions[path] = {});
+    conds['$' + $conditional] = val;
+    return this;
+  };
+});
+
+/**
+ * Specifies a `$mod` condition
+ *
+ * @param {String} [path]
+ * @param {Number} val
+ * @return {Query} this
+ * @api public
+ */
+
+Query.prototype.mod = function() {
+  let val, path;
+
+  if (1 === arguments.length) {
+    this._ensurePath('mod');
+    val = arguments[0];
+    path = this._path;
+  } else if (2 === arguments.length &amp;&amp; !Array.isArray(arguments[1])) {
+    this._ensurePath('mod');
+    val = [arguments[0], arguments[1]];
+    path = this._path;
+  } else if (3 === arguments.length) {
+    val = [arguments[1], arguments[2]];
+    path = arguments[0];
+  } else {
+    val = arguments[1];
+    path = arguments[0];
+  }
+
+  const conds = this._conditions[path] || (this._conditions[path] = {});
+  conds.$mod = val;
+  return this;
+};
+
+/**
+ * Specifies an `$exists` condition
+ *
+ * #### Example:
+ *
+ *     // { name: { $exists: true }}
+ *     Thing.where('name').exists()
+ *     Thing.where('name').exists(true)
+ *     Thing.find().exists('name')
+ *
+ *     // { name: { $exists: false }}
+ *     Thing.where('name').exists(false);
+ *     Thing.find().exists('name', false);
+ *
+ * @param {String} [path]
+ * @param {Number} val
+ * @return {Query} this
+ * @api public
+ */
+
+Query.prototype.exists = function() {
+  let path, val;
+
+  if (0 === arguments.length) {
+    this._ensurePath('exists');
+    path = this._path;
+    val = true;
+  } else if (1 === arguments.length) {
+    if ('boolean' === typeof arguments[0]) {
+      this._ensurePath('exists');
+      path = this._path;
+      val = arguments[0];
+    } else {
+      path = arguments[0];
+      val = true;
+    }
+  } else if (2 === arguments.length) {
+    path = arguments[0];
+    val = arguments[1];
+  }
+
+  const conds = this._conditions[path] || (this._conditions[path] = {});
+  conds.$exists = val;
+  return this;
+};
+
+/**
+ * Specifies an `$elemMatch` condition
+ *
+ * #### Example:
+ *
+ *     query.elemMatch('comment', { author: 'autobot', votes: {$gte: 5}})
+ *
+ *     query.where('comment').elemMatch({ author: 'autobot', votes: {$gte: 5}})
+ *
+ *     query.elemMatch('comment', function (elem) {
+ *       elem.where('author').equals('autobot');
+ *       elem.where('votes').gte(5);
+ *     })
+ *
+ *     query.where('comment').elemMatch(function (elem) {
+ *       elem.where({ author: 'autobot' });
+ *       elem.where('votes').gte(5);
+ *     })
+ *
+ * @param {String|Object|Function} path
+ * @param {Object|Function} criteria
+ * @return {Query} this
+ * @api public
+ */
+
+Query.prototype.elemMatch = function() {
+  if (null == arguments[0])
+    throw new TypeError('Invalid argument');
+
+  let fn, path, criteria;
+
+  if ('function' === typeof arguments[0]) {
+    this._ensurePath('elemMatch');
+    path = this._path;
+    fn = arguments[0];
+  } else if (utils.isObject(arguments[0])) {
+    this._ensurePath('elemMatch');
+    path = this._path;
+    criteria = arguments[0];
+  } else if ('function' === typeof arguments[1]) {
+    path = arguments[0];
+    fn = arguments[1];
+  } else if (arguments[1] &amp;&amp; utils.isObject(arguments[1])) {
+    path = arguments[0];
+    criteria = arguments[1];
+  } else {
+    throw new TypeError('Invalid argument');
+  }
+
+  if (fn) {
+    criteria = new Query;
+    fn(criteria);
+    criteria = criteria._conditions;
+  }
+
+  const conds = this._conditions[path] || (this._conditions[path] = {});
+  conds.$elemMatch = criteria;
+  return this;
+};
+
+// Spatial queries
+
+/**
+ * Sugar for geo-spatial queries.
+ *
+ * #### Example:
+ *
+ *     query.within().box()
+ *     query.within().circle()
+ *     query.within().geometry()
+ *
+ *     query.where('loc').within({ center: [50,50], radius: 10, unique: true, spherical: true });
+ *     query.where('loc').within({ box: [[40.73, -73.9], [40.7, -73.988]] });
+ *     query.where('loc').within({ polygon: [[],[],[],[]] });
+ *
+ *     query.where('loc').within([], [], []) // polygon
+ *     query.where('loc').within([], []) // box
+ *     query.where('loc').within({ type: 'LineString', coordinates: [...] }); // geometry
+ *
+ * #### Note:
+ *
+ * Must be used after `where()`.
+ *
+ * @memberOf Query
+ * @return {Query} this
+ * @api public
+ */
+
+Query.prototype.within = function within() {
+  // opinionated, must be used after where
+  this._ensurePath('within');
+  this._geoComparison = $withinCmd;
+
+  if (0 === arguments.length) {
+    return this;
+  }
+
+  if (2 === arguments.length) {
+    return this.box.apply(this, arguments);
+  } else if (2 &lt; arguments.length) {
+    return this.polygon.apply(this, arguments);
+  }
+
+  const area = arguments[0];
+
+  if (!area)
+    throw new TypeError('Invalid argument');
+
+  if (area.center)
+    return this.circle(area);
+
+  if (area.box)
+    return this.box.apply(this, area.box);
+
+  if (area.polygon)
+    return this.polygon.apply(this, area.polygon);
+
+  if (area.type &amp;&amp; area.coordinates)
+    return this.geometry(area);
+
+  throw new TypeError('Invalid argument');
+};
+
+/**
+ * Specifies a $box condition
+ *
+ * #### Example:
+ *
+ *     var lowerLeft = [40.73083, -73.99756]
+ *     var upperRight= [40.741404,  -73.988135]
+ *
+ *     query.where('loc').within().box(lowerLeft, upperRight)
+ *     query.box('loc', lowerLeft, upperRight )
+ *
+ * @see http://www.mongodb.org/display/DOCS/Geospatial+Indexing
+ * @see Query#within #query_Query-within
+ * @param {String} path
+ * @param {Object} val
+ * @return {Query} this
+ * @api public
+ */
+
+Query.prototype.box = function() {
+  let path, box;
+
+  if (3 === arguments.length) {
+    // box('loc', [], [])
+    path = arguments[0];
+    box = [arguments[1], arguments[2]];
+  } else if (2 === arguments.length) {
+    // box([], [])
+    this._ensurePath('box');
+    path = this._path;
+    box = [arguments[0], arguments[1]];
+  } else {
+    throw new TypeError('Invalid argument');
+  }
+
+  const conds = this._conditions[path] || (this._conditions[path] = {});
+  conds[this._geoComparison || $withinCmd] = { $box: box };
+  return this;
+};
+
+/**
+ * Specifies a $polygon condition
+ *
+ * #### Example:
+ *
+ *     query.where('loc').within().polygon([10,20], [13, 25], [7,15])
+ *     query.polygon('loc', [10,20], [13, 25], [7,15])
+ *
+ * @param {String|Array} [path]
+ * @param {Array|Object} [val]
+ * @return {Query} this
+ * @see http://www.mongodb.org/display/DOCS/Geospatial+Indexing
+ * @api public
+ */
+
+Query.prototype.polygon = function() {
+  let val, path;
+
+  if ('string' == typeof arguments[0]) {
+    // polygon('loc', [],[],[])
+    val = Array.from(arguments);
+    path = val.shift();
+  } else {
+    // polygon([],[],[])
+    this._ensurePath('polygon');
+    path = this._path;
+    val = Array.from(arguments);
+  }
+
+  const conds = this._conditions[path] || (this._conditions[path] = {});
+  conds[this._geoComparison || $withinCmd] = { $polygon: val };
+  return this;
+};
+
+/**
+ * Specifies a $center or $centerSphere condition.
+ *
+ * #### Example:
+ *
+ *     var area = { center: [50, 50], radius: 10, unique: true }
+ *     query.where('loc').within().circle(area)
+ *     query.center('loc', area);
+ *
+ *     // for spherical calculations
+ *     var area = { center: [50, 50], radius: 10, unique: true, spherical: true }
+ *     query.where('loc').within().circle(area)
+ *     query.center('loc', area);
+ *
+ * @param {String} [path]
+ * @param {Object} area
+ * @return {Query} this
+ * @see http://www.mongodb.org/display/DOCS/Geospatial+Indexing
+ * @api public
+ */
+
+Query.prototype.circle = function() {
+  let path, val;
+
+  if (1 === arguments.length) {
+    this._ensurePath('circle');
+    path = this._path;
+    val = arguments[0];
+  } else if (2 === arguments.length) {
+    path = arguments[0];
+    val = arguments[1];
+  } else {
+    throw new TypeError('Invalid argument');
+  }
+
+  if (!('radius' in val &amp;&amp; val.center))
+    throw new Error('center and radius are required');
+
+  const conds = this._conditions[path] || (this._conditions[path] = {});
+
+  const type = val.spherical
+    ? '$centerSphere'
+    : '$center';
+
+  const wKey = this._geoComparison || $withinCmd;
+  conds[wKey] = {};
+  conds[wKey][type] = [val.center, val.radius];
+
+  if ('unique' in val)
+    conds[wKey].$uniqueDocs = !!val.unique;
+
+  return this;
+};
+
+/**
+ * Specifies a `$near` or `$nearSphere` condition
+ *
+ * These operators return documents sorted by distance.
+ *
+ * #### Example:
+ *
+ *     query.where('loc').near({ center: [10, 10] });
+ *     query.where('loc').near({ center: [10, 10], maxDistance: 5 });
+ *     query.where('loc').near({ center: [10, 10], maxDistance: 5, spherical: true });
+ *     query.near('loc', { center: [10, 10], maxDistance: 5 });
+ *     query.near({ center: { type: 'Point', coordinates: [..] }})
+ *     query.near().geometry({ type: 'Point', coordinates: [..] })
+ *
+ * @param {String} [path]
+ * @param {Object} val
+ * @return {Query} this
+ * @see http://www.mongodb.org/display/DOCS/Geospatial+Indexing
+ * @api public
+ */
+
+Query.prototype.near = function near() {
+  let path, val;
+
+  this._geoComparison = '$near';
+
+  if (0 === arguments.length) {
+    return this;
+  } else if (1 === arguments.length) {
+    this._ensurePath('near');
+    path = this._path;
+    val = arguments[0];
+  } else if (2 === arguments.length) {
+    path = arguments[0];
+    val = arguments[1];
+  } else {
+    throw new TypeError('Invalid argument');
+  }
+
+  if (!val.center) {
+    throw new Error('center is required');
+  }
+
+  const conds = this._conditions[path] || (this._conditions[path] = {});
+
+  const type = val.spherical
+    ? '$nearSphere'
+    : '$near';
+
+  // center could be a GeoJSON object or an Array
+  if (Array.isArray(val.center)) {
+    conds[type] = val.center;
+
+    const radius = 'maxDistance' in val
+      ? val.maxDistance
+      : null;
+
+    if (null != radius) {
+      conds.$maxDistance = radius;
+    }
+    if (null != val.minDistance) {
+      conds.$minDistance = val.minDistance;
+    }
+  } else {
+    // GeoJSON?
+    if (val.center.type != 'Point' || !Array.isArray(val.center.coordinates)) {
+      throw new Error(util.format('Invalid GeoJSON specified for %s', type));
+    }
+    conds[type] = { $geometry: val.center };
+
+    // MongoDB 2.6 insists on maxDistance being in $near / $nearSphere
+    if ('maxDistance' in val) {
+      conds[type]['$maxDistance'] = val.maxDistance;
+    }
+    if ('minDistance' in val) {
+      conds[type]['$minDistance'] = val.minDistance;
+    }
+  }
+
+  return this;
+};
+
+/**
+ * Declares an intersects query for `geometry()`.
+ *
+ * #### Example:
+ *
+ *     query.where('path').intersects().geometry({
+ *         type: 'LineString'
+ *       , coordinates: [[180.0, 11.0], [180, 9.0]]
+ *     })
+ *
+ *     query.where('path').intersects({
+ *         type: 'LineString'
+ *       , coordinates: [[180.0, 11.0], [180, 9.0]]
+ *     })
+ *
+ * @param {Object} [arg]
+ * @return {Query} this
+ * @api public
+ */
+
+Query.prototype.intersects = function intersects() {
+  // opinionated, must be used after where
+  this._ensurePath('intersects');
+
+  this._geoComparison = '$geoIntersects';
+
+  if (0 === arguments.length) {
+    return this;
+  }
+
+  const area = arguments[0];
+
+  if (null != area &amp;&amp; area.type &amp;&amp; area.coordinates)
+    return this.geometry(area);
+
+  throw new TypeError('Invalid argument');
+};
+
+/**
+ * Specifies a `$geometry` condition
+ *
+ * #### Example:
+ *
+ *     var polyA = [[[ 10, 20 ], [ 10, 40 ], [ 30, 40 ], [ 30, 20 ]]]
+ *     query.where('loc').within().geometry({ type: 'Polygon', coordinates: polyA })
+ *
+ *     // or
+ *     var polyB = [[ 0, 0 ], [ 1, 1 ]]
+ *     query.where('loc').within().geometry({ type: 'LineString', coordinates: polyB })
+ *
+ *     // or
+ *     var polyC = [ 0, 0 ]
+ *     query.where('loc').within().geometry({ type: 'Point', coordinates: polyC })
+ *
+ *     // or
+ *     query.where('loc').intersects().geometry({ type: 'Point', coordinates: polyC })
+ *
+ * #### Note:
+ *
+ * `geometry()` **must** come after either `intersects()` or `within()`.
+ *
+ * The `object` argument must contain `type` and `coordinates` properties.
+ * - type {String}
+ * - coordinates {Array}
+ *
+ * The most recent path passed to `where()` is used.
+ *
+ * @param {Object} object Must contain a `type` property which is a String and a `coordinates` property which is an Array. See the examples.
+ * @return {Query} this
+ * @see http://docs.mongodb.org/manual/release-notes/2.4/#new-geospatial-indexes-with-geojson-and-improved-spherical-geometry
+ * @see http://www.mongodb.org/display/DOCS/Geospatial+Indexing
+ * @see $geometry http://docs.mongodb.org/manual/reference/operator/geometry/
+ * @api public
+ */
+
+Query.prototype.geometry = function geometry() {
+  if (!('$within' == this._geoComparison ||
+        '$geoWithin' == this._geoComparison ||
+        '$near' == this._geoComparison ||
+        '$geoIntersects' == this._geoComparison)) {
+    throw new Error('geometry() must come after `within()`, `intersects()`, or `near()');
+  }
+
+  let val, path;
+
+  if (1 === arguments.length) {
+    this._ensurePath('geometry');
+    path = this._path;
+    val = arguments[0];
+  } else {
+    throw new TypeError('Invalid argument');
+  }
+
+  if (!(val.type &amp;&amp; Array.isArray(val.coordinates))) {
+    throw new TypeError('Invalid argument');
+  }
+
+  const conds = this._conditions[path] || (this._conditions[path] = {});
+  conds[this._geoComparison] = { $geometry: val };
+
+  return this;
+};
+
+// end spatial
+
+/**
+ * Specifies which document fields to include or exclude
+ *
+ * #### String syntax
+ *
+ * When passing a string, prefixing a path with `-` will flag that path as excluded. When a path does not have the `-` prefix, it is included.
+ *
+ * #### Example:
+ *
+ *     // include a and b, exclude c
+ *     query.select('a b -c');
+ *
+ *     // or you may use object notation, useful when
+ *     // you have keys already prefixed with a "-"
+ *     query.select({a: 1, b: 1, c: 0});
+ *
+ * #### Note:
+ *
+ * Cannot be used with `distinct()`
+ *
+ * @param {Object|String} arg
+ * @return {Query} this
+ * @see SchemaType
+ * @api public
+ */
+
+Query.prototype.select = function select() {
+  let arg = arguments[0];
+  if (!arg) return this;
+
+  if (arguments.length !== 1) {
+    throw new Error('Invalid select: select only takes 1 argument');
+  }
+
+  this._validate('select');
+
+  const fields = this._fields || (this._fields = {});
+  const type = typeof arg;
+  let i, len;
+
+  if (('string' == type || utils.isArgumentsObject(arg)) &amp;&amp;
+    'number' == typeof arg.length || Array.isArray(arg)) {
+    if ('string' == type)
+      arg = arg.split(/\s+/);
+
+    for (i = 0, len = arg.length; i &lt; len; ++i) {
+      let field = arg[i];
+      if (!field) continue;
+      const include = '-' == field[0] ? 0 : 1;
+      if (include === 0) field = field.substring(1);
+      fields[field] = include;
+    }
+
+    return this;
+  }
+
+  if (utils.isObject(arg)) {
+    const keys = utils.keys(arg);
+    for (i = 0; i &lt; keys.length; ++i) {
+      fields[keys[i]] = arg[keys[i]];
+    }
+    return this;
+  }
+
+  throw new TypeError('Invalid select() argument. Must be string or object.');
+};
+
+/**
+ * Specifies a $slice condition for a `path`
+ *
+ * #### Example:
+ *
+ *     query.slice('comments', 5)
+ *     query.slice('comments', -5)
+ *     query.slice('comments', [10, 5])
+ *     query.where('comments').slice(5)
+ *     query.where('comments').slice([-10, 5])
+ *
+ * @param {String} [path]
+ * @param {Number} val number/range of elements to slice
+ * @return {Query} this
+ * @see mongodb http://www.mongodb.org/display/DOCS/Retrieving+a+Subset+of+Fields#RetrievingaSubsetofFields-RetrievingaSubrangeofArrayElements
+ * @api public
+ */
+
+Query.prototype.slice = function() {
+  if (0 === arguments.length)
+    return this;
+
+  this._validate('slice');
+
+  let path, val;
+
+  if (1 === arguments.length) {
+    const arg = arguments[0];
+    if (typeof arg === 'object' &amp;&amp; !Array.isArray(arg)) {
+      const keys = Object.keys(arg);
+      const numKeys = keys.length;
+      for (let i = 0; i &lt; numKeys; ++i) {
+        this.slice(keys[i], arg[keys[i]]);
+      }
+      return this;
+    }
+    this._ensurePath('slice');
+    path = this._path;
+    val = arguments[0];
+  } else if (2 === arguments.length) {
+    if ('number' === typeof arguments[0]) {
+      this._ensurePath('slice');
+      path = this._path;
+      val = [arguments[0], arguments[1]];
+    } else {
+      path = arguments[0];
+      val = arguments[1];
+    }
+  } else if (3 === arguments.length) {
+    path = arguments[0];
+    val = [arguments[1], arguments[2]];
+  }
+
+  const myFields = this._fields || (this._fields = {});
+  myFields[path] = { $slice: val };
+  return this;
+};
+
+/**
+ * Sets the sort order
+ *
+ * If an object is passed, values allowed are 'asc', 'desc', 'ascending', 'descending', 1, and -1.
+ *
+ * If a string is passed, it must be a space delimited list of path names. The sort order of each path is ascending unless the path name is prefixed with `-` which will be treated as descending.
+ *
+ * #### Example:
+ *
+ *     // these are equivalent
+ *     query.sort({ field: 'asc', test: -1 });
+ *     query.sort('field -test');
+ *     query.sort([['field', 1], ['test', -1]]);
+ *
+ * #### Note:
+ *
+ *  - The array syntax `.sort([['field', 1], ['test', -1]])` can only be used with [mongodb driver >= 2.0.46](https://github.com/mongodb/node-mongodb-native/blob/2.1/HISTORY.md#2046-2015-10-15).
+ *  - Cannot be used with `distinct()`
+ *
+ * @param {Object|String|Array} arg
+ * @return {Query} this
+ * @api public
+ */
+
+Query.prototype.sort = function(arg) {
+  if (!arg) return this;
+  let i, len, field;
+
+  this._validate('sort');
+
+  const type = typeof arg;
+
+  // .sort([['field', 1], ['test', -1]])
+  if (Array.isArray(arg)) {
+    len = arg.length;
+    for (i = 0; i &lt; arg.length; ++i) {
+      if (!Array.isArray(arg[i])) {
+        throw new Error('Invalid sort() argument, must be array of arrays');
+      }
+      _pushArr(this.options, arg[i][0], arg[i][1]);
+    }
+    return this;
+  }
+
+  // .sort('field -test')
+  if (1 === arguments.length &amp;&amp; 'string' == type) {
+    arg = arg.split(/\s+/);
+    len = arg.length;
+    for (i = 0; i &lt; len; ++i) {
+      field = arg[i];
+      if (!field) continue;
+      const ascend = '-' == field[0] ? -1 : 1;
+      if (ascend === -1) field = field.substring(1);
+      push(this.options, field, ascend);
+    }
+
+    return this;
+  }
+
+  // .sort({ field: 1, test: -1 })
+  if (utils.isObject(arg)) {
+    const keys = utils.keys(arg);
+    for (i = 0; i &lt; keys.length; ++i) {
+      field = keys[i];
+      push(this.options, field, arg[field]);
+    }
+
+    return this;
+  }
+
+  if (typeof Map !== 'undefined' &amp;&amp; arg instanceof Map) {
+    _pushMap(this.options, arg);
+    return this;
+  }
+  throw new TypeError('Invalid sort() argument. Must be a string, object, or array.');
+};
+
+/*!
+ * @ignore
+ */
+
+const _validSortValue = {
+  1: 1,
+  '-1': -1,
+  asc: 1,
+  ascending: 1,
+  desc: -1,
+  descending: -1
+};
+
+function push(opts, field, value) {
+  if (Array.isArray(opts.sort)) {
+    throw new TypeError('Can\'t mix sort syntaxes. Use either array or object:' +
+      '\n- `.sort([[\'field\', 1], [\'test\', -1]])`' +
+      '\n- `.sort({ field: 1, test: -1 })`');
+  }
+
+  let s;
+  if (value &amp;&amp; value.$meta) {
+    s = opts.sort || (opts.sort = {});
+    s[field] = { $meta: value.$meta };
+    return;
+  }
+
+  s = opts.sort || (opts.sort = {});
+  let val = String(value || 1).toLowerCase();
+  val = _validSortValue[val];
+  if (!val) throw new TypeError('Invalid sort value: { ' + field + ': ' + value + ' }');
+
+  s[field] = val;
+}
+
+function _pushArr(opts, field, value) {
+  opts.sort = opts.sort || [];
+  if (!Array.isArray(opts.sort)) {
+    throw new TypeError('Can\'t mix sort syntaxes. Use either array or object:' +
+      '\n- `.sort([[\'field\', 1], [\'test\', -1]])`' +
+      '\n- `.sort({ field: 1, test: -1 })`');
+  }
+
+  let val = String(value || 1).toLowerCase();
+  val = _validSortValue[val];
+  if (!val) throw new TypeError('Invalid sort value: [ ' + field + ', ' + value + ' ]');
+
+  opts.sort.push([field, val]);
+}
+
+function _pushMap(opts, map) {
+  opts.sort = opts.sort || new Map();
+  if (!(opts.sort instanceof Map)) {
+    throw new TypeError('Can\'t mix sort syntaxes. Use either array or ' +
+      'object or map consistently');
+  }
+  map.forEach(function(value, key) {
+    let val = String(value || 1).toLowerCase();
+    val = _validSortValue[val];
+    if (!val) throw new TypeError('Invalid sort value: &lt; ' + key + ': ' + value + ' >');
+
+    opts.sort.set(key, val);
+  });
+}
+
+
+/**
+ * Specifies the limit option.
+ *
+ * #### Example:
+ *
+ *     query.limit(20)
+ *
+ * #### Note:
+ *
+ * Cannot be used with `distinct()`
+ *
+ * @method limit
+ * @memberOf Query
+ * @param {Number} val
+ * @see mongodb http://www.mongodb.org/display/DOCS/Advanced+Queries#AdvancedQueries-%7B%7Blimit%28%29%7D%7D
+ * @api public
+ */
+/**
+ * Specifies the skip option.
+ *
+ * #### Example:
+ *
+ *     query.skip(100).limit(20)
+ *
+ * #### Note:
+ *
+ * Cannot be used with `distinct()`
+ *
+ * @method skip
+ * @memberOf Query
+ * @param {Number} val
+ * @see mongodb http://www.mongodb.org/display/DOCS/Advanced+Queries#AdvancedQueries-%7B%7Bskip%28%29%7D%7D
+ * @api public
+ */
+/**
+ * Specifies the batchSize option.
+ *
+ * #### Example:
+ *
+ *     query.batchSize(100)
+ *
+ * #### Note:
+ *
+ * Cannot be used with `distinct()`
+ *
+ * @method batchSize
+ * @memberOf Query
+ * @param {Number} val
+ * @see mongodb http://www.mongodb.org/display/DOCS/Advanced+Queries#AdvancedQueries-%7B%7BbatchSize%28%29%7D%7D
+ * @api public
+ */
+/**
+ * Specifies the `comment` option.
+ *
+ * #### Example:
+ *
+ *     query.comment('login query')
+ *
+ * #### Note:
+ *
+ * Cannot be used with `distinct()`
+ *
+ * @method comment
+ * @memberOf Query
+ * @param {Number} val
+ * @see mongodb http://www.mongodb.org/display/DOCS/Advanced+Queries#AdvancedQueries-%24comment
+ * @api public
+ */
+
+/*!
+ * limit, skip, batchSize, comment
+ *
+ * Sets these associated options.
+ *
+ *     query.comment('feed query');
+ */
+
+['limit', 'skip', 'batchSize', 'comment'].forEach(function(method) {
+  Query.prototype[method] = function(v) {
+    this._validate(method);
+    this.options[method] = v;
+    return this;
+  };
+});
+
+/**
+ * Specifies the maxTimeMS option.
+ *
+ * #### Example:
+ *
+ *     query.maxTime(100)
+ *     query.maxTimeMS(100)
+ *
+ * @method maxTime
+ * @memberOf Query
+ * @param {Number} ms
+ * @see mongodb http://docs.mongodb.org/manual/reference/operator/meta/maxTimeMS/#op._S_maxTimeMS
+ * @api public
+ */
+
+Query.prototype.maxTime = Query.prototype.maxTimeMS = function(ms) {
+  this._validate('maxTime');
+  this.options.maxTimeMS = ms;
+  return this;
+};
+
+/**
+ * Sets query hints.
+ *
+ * #### Example:
+ *
+ *     query.hint({ indexA: 1, indexB: -1});
+ *     query.hint('indexA_1_indexB_1');
+ *
+ * #### Note:
+ *
+ * Cannot be used with `distinct()`
+ *
+ * @param {Object|string} val a hint object or the index name
+ * @return {Query} this
+ * @see mongodb http://www.mongodb.org/display/DOCS/Advanced+Queries#AdvancedQueries-%24hint
+ * @api public
+ */
+
+Query.prototype.hint = function() {
+  if (0 === arguments.length) return this;
+
+  this._validate('hint');
+
+  const arg = arguments[0];
+  if (utils.isObject(arg)) {
+    const hint = this.options.hint || (this.options.hint = {});
+
+    // must keep object keys in order so don't use Object.keys()
+    for (const k in arg) {
+      hint[k] = arg[k];
+    }
+
+    return this;
+  }
+  if (typeof arg === 'string') {
+    this.options.hint = arg;
+    return this;
+  }
+
+  throw new TypeError('Invalid hint. ' + arg);
+};
+
+/**
+ * Requests acknowledgement that this operation has been persisted to MongoDB's
+ * on-disk journal.
+ * This option is only valid for operations that write to the database:
+ *
+ * - `deleteOne()`
+ * - `deleteMany()`
+ * - `findOneAndDelete()`
+ * - `findOneAndUpdate()`
+ * - `updateOne()`
+ * - `updateMany()`
+ *
+ * Defaults to the `j` value if it is specified in writeConcern options
+ *
+ * #### Example:
+ *
+ *     mquery().w(2).j(true).wtimeout(2000);
+ *
+ * @method j
+ * @memberOf Query
+ * @instance
+ * @param {boolean} val
+ * @see mongodb https://docs.mongodb.com/manual/reference/write-concern/#j-option
+ * @return {Query} this
+ * @api public
+ */
+
+Query.prototype.j = function j(val) {
+  this.options.j = val;
+  return this;
+};
+
+/**
+ * Sets the slaveOk option. _Deprecated_ in MongoDB 2.2 in favor of read preferences.
+ *
+ * #### Example:
+ *
+ *     query.slaveOk() // true
+ *     query.slaveOk(true)
+ *     query.slaveOk(false)
+ *
+ * @deprecated use read() preferences instead if on mongodb >= 2.2
+ * @param {Boolean} v defaults to true
+ * @see mongodb http://docs.mongodb.org/manual/applications/replication/#read-preference
+ * @see read()
+ * @return {Query} this
+ * @api public
+ */
+
+Query.prototype.slaveOk = function(v) {
+  this.options.slaveOk = arguments.length ? !!v : true;
+  return this;
+};
+
+/**
+ * Sets the readPreference option for the query.
+ *
+ * #### Example:
+ *
+ *     new Query().read('primary')
+ *     new Query().read('p')  // same as primary
+ *
+ *     new Query().read('primaryPreferred')
+ *     new Query().read('pp') // same as primaryPreferred
+ *
+ *     new Query().read('secondary')
+ *     new Query().read('s')  // same as secondary
+ *
+ *     new Query().read('secondaryPreferred')
+ *     new Query().read('sp') // same as secondaryPreferred
+ *
+ *     new Query().read('nearest')
+ *     new Query().read('n')  // same as nearest
+ *
+ *     // you can also use mongodb.ReadPreference class to also specify tags
+ *     new Query().read(mongodb.ReadPreference('secondary', [{ dc:'sf', s: 1 },{ dc:'ma', s: 2 }]))
+ *
+ *     new Query().setReadPreference('primary') // alias of .read()
+ *
+ * #### Preferences:
+ *
+ *     primary - (default)  Read from primary only. Operations will produce an error if primary is unavailable. Cannot be combined with tags.
+ *     secondary            Read from secondary if available, otherwise error.
+ *     primaryPreferred     Read from primary if available, otherwise a secondary.
+ *     secondaryPreferred   Read from a secondary if available, otherwise read from the primary.
+ *     nearest              All operations read from among the nearest candidates, but unlike other modes, this option will include both the primary and all secondaries in the random selection.
+ *
+ * Aliases
+ *
+ *     p   primary
+ *     pp  primaryPreferred
+ *     s   secondary
+ *     sp  secondaryPreferred
+ *     n   nearest
+ *
+ * Read more about how to use read preferences [here](http://docs.mongodb.org/manual/applications/replication/#read-preference) and [here](http://mongodb.github.com/node-mongodb-native/driver-articles/anintroductionto1_1and2_2.html#read-preferences).
+ *
+ * @param {String|ReadPreference} pref one of the listed preference options or their aliases
+ * @see mongodb http://docs.mongodb.org/manual/applications/replication/#read-preference
+ * @see driver http://mongodb.github.com/node-mongodb-native/driver-articles/anintroductionto1_1and2_2.html#read-preferences
+ * @return {Query} this
+ * @api public
+ */
+
+Query.prototype.read = Query.prototype.setReadPreference = function(pref) {
+  if (arguments.length > 1 &amp;&amp; !Query.prototype.read.deprecationWarningIssued) {
+    console.error('Deprecation warning: \'tags\' argument is not supported anymore in Query.read() method. Please use mongodb.ReadPreference object instead.');
+    Query.prototype.read.deprecationWarningIssued = true;
+  }
+  this.options.readPreference = utils.readPref(pref);
+  return this;
+};
+
+/**
+ * Sets the readConcern option for the query.
+ *
+ * #### Example:
+ *
+ *     new Query().readConcern('local')
+ *     new Query().readConcern('l')  // same as local
+ *
+ *     new Query().readConcern('available')
+ *     new Query().readConcern('a')  // same as available
+ *
+ *     new Query().readConcern('majority')
+ *     new Query().readConcern('m')  // same as majority
+ *
+ *     new Query().readConcern('linearizable')
+ *     new Query().readConcern('lz') // same as linearizable
+ *
+ *     new Query().readConcern('snapshot')
+ *     new Query().readConcern('s')  // same as snapshot
+ *
+ *     new Query().r('s') // r is alias of readConcern
+ *
+ *
+ * #### Read Concern Level:
+ *
+ *     local         MongoDB 3.2+ The query returns from the instance with no guarantee guarantee that the data has been written to a majority of the replica set members (i.e. may be rolled back).
+ *     available     MongoDB 3.6+ The query returns from the instance with no guarantee guarantee that the data has been written to a majority of the replica set members (i.e. may be rolled back).
+ *     majority      MongoDB 3.2+ The query returns the data that has been acknowledged by a majority of the replica set members. The documents returned by the read operation are durable, even in the event of failure.
+ *     linearizable  MongoDB 3.4+ The query returns data that reflects all successful majority-acknowledged writes that completed prior to the start of the read operation. The query may wait for concurrently executing writes to propagate to a majority of replica set members before returning results.
+ *     snapshot      MongoDB 4.0+ Only available for operations within multi-document transactions. Upon transaction commit with write concern "majority", the transaction operations are guaranteed to have read from a snapshot of majority-committed data.
+ *
+ * Aliases
+ *
+ *     l   local
+ *     a   available
+ *     m   majority
+ *     lz  linearizable
+ *     s   snapshot
+ *
+ * Read more about how to use read concern [here](https://docs.mongodb.com/manual/reference/read-concern/).
+ *
+ * @param {String} level one of the listed read concern level or their aliases
+ * @see mongodb https://docs.mongodb.com/manual/reference/read-concern/
+ * @return {Query} this
+ * @api public
+ */
+
+Query.prototype.readConcern = Query.prototype.r = function(level) {
+  this.options.readConcern = utils.readConcern(level);
+  return this;
+};
+
+/**
+ * Sets tailable option.
+ *
+ * #### Example:
+ *
+ *     query.tailable() &lt;== true
+ *     query.tailable(true)
+ *     query.tailable(false)
+ *
+ * #### Note:
+ *
+ * Cannot be used with `distinct()`
+ *
+ * @param {Boolean} v defaults to true
+ * @see mongodb http://www.mongodb.org/display/DOCS/Tailable+Cursors
+ * @api public
+ */
+
+Query.prototype.tailable = function() {
+  this._validate('tailable');
+
+  this.options.tailable = arguments.length
+    ? !!arguments[0]
+    : true;
+
+  return this;
+};
+
+/**
+ * Sets the specified number of `mongod` servers, or tag set of `mongod` servers,
+ * that must acknowledge this write before this write is considered successful.
+ * This option is only valid for operations that write to the database:
+ *
+ * - `deleteOne()`
+ * - `deleteMany()`
+ * - `findOneAndDelete()`
+ * - `findOneAndUpdate()`
+ * - `updateOne()`
+ * - `updateMany()`
+ *
+ * Defaults to the `w` value if it is specified in writeConcern options
+ *
+ * #### Example:
+ *
+ *     mquery().writeConcern(0)
+ *     mquery().writeConcern(1)
+ *     mquery().writeConcern({ w: 1, j: true, wtimeout: 2000 })
+ *     mquery().writeConcern('majority')
+ *     mquery().writeConcern('m') // same as majority
+ *     mquery().writeConcern('tagSetName') // if the tag set is 'm', use .writeConcern({ w: 'm' }) instead
+ *     mquery().w(1) // w is alias of writeConcern
+ *
+ * @method writeConcern
+ * @memberOf Query
+ * @instance
+ * @param {String|number|object} concern 0 for fire-and-forget, 1 for acknowledged by one server, 'majority' for majority of the replica set, or [any of the more advanced options](https://docs.mongodb.com/manual/reference/write-concern/#w-option).
+ * @see mongodb https://docs.mongodb.com/manual/reference/write-concern/#w-option
+ * @return {Query} this
+ * @api public
+ */
+
+Query.prototype.writeConcern = Query.prototype.w = function writeConcern(concern) {
+  if ('object' === typeof concern) {
+    if ('undefined' !== typeof concern.j) this.options.j = concern.j;
+    if ('undefined' !== typeof concern.w) this.options.w = concern.w;
+    if ('undefined' !== typeof concern.wtimeout) this.options.wtimeout = concern.wtimeout;
+  } else {
+    this.options.w = 'm' === concern ? 'majority' : concern;
+  }
+  return this;
+};
+
+/**
+ * Specifies a time limit, in milliseconds, for the write concern.
+ * If `ms > 1`, it is maximum amount of time to wait for this write
+ * to propagate through the replica set before this operation fails.
+ * The default is `0`, which means no timeout.
+ *
+ * This option is only valid for operations that write to the database:
+ *
+ * - `deleteOne()`
+ * - `deleteMany()`
+ * - `findOneAndDelete()`
+ * - `findOneAndUpdate()`
+ * - `updateOne()`
+ * - `updateMany()`
+ *
+ * Defaults to `wtimeout` value if it is specified in writeConcern
+ *
+ * #### Example:
+ *
+ *     mquery().w(2).j(true).wtimeout(2000)
+ *
+ * @method wtimeout
+ * @memberOf Query
+ * @instance
+ * @param {number} ms number of milliseconds to wait
+ * @see mongodb https://docs.mongodb.com/manual/reference/write-concern/#wtimeout
+ * @return {Query} this
+ * @api public
+ */
+
+Query.prototype.wtimeout = Query.prototype.wTimeout = function wtimeout(ms) {
+  this.options.wtimeout = ms;
+  return this;
+};
+
+/**
+ * Merges another Query or conditions object into this one.
+ *
+ * When a Query is passed, conditions, field selection and options are merged.
+ *
+ * @param {Query|Object} source
+ * @return {Query} this
+ */
+
+Query.prototype.merge = function(source) {
+  if (!source)
+    return this;
+
+  if (!Query.canMerge(source))
+    throw new TypeError('Invalid argument. Expected instanceof mquery or plain object');
+
+  if (source instanceof Query) {
+    // if source has a feature, apply it to ourselves
+
+    if (source._conditions) {
+      utils.merge(this._conditions, source._conditions);
+    }
+
+    if (source._fields) {
+      this._fields || (this._fields = {});
+      utils.merge(this._fields, source._fields);
+    }
+
+    if (source.options) {
+      this.options || (this.options = {});
+      utils.merge(this.options, source.options);
+    }
+
+    if (source._updateDoc) {
+      this._updateDoc || (this._updateDoc = {});
+      utils.mergeClone(this._updateDoc, source._updateDoc);
+    }
+
+    if (source._distinctDoc) {
+      this._distinctDoc = source._distinctDoc;
+    }
+
+    return this;
+  }
+
+  // plain object
+  utils.merge(this._conditions, source);
+
+  return this;
+};
+
+/**
+ * Finds documents.
+ *
+ * #### Example:
+ *
+ *     query.find()
+ *     await query.find()
+ *     await query.find({ name: 'Burning Lights' })
+ *
+ * @param {Object} [criteria] mongodb selector
+ * @return {Query} this
+ * @api public
+ */
+
+Query.prototype.find = function(criteria) {
+  this.op = 'find';
+
+  if (Query.canMerge(criteria)) {
+    this.merge(criteria);
+  }
+
+  return this;
+};
+
+/**
+ * Executes a `find` Query
+ * @returns the result
+ */
+Query.prototype._find = async function _find() {
+  const conds = this._conditions;
+  const options = this._optionsForExec();
+
+  if (this.$useProjection) {
+    options.projection = this._fieldsForExec();
+  } else {
+    options.fields = this._fieldsForExec();
+  }
+
+  debug('_find', this._collection.collectionName, conds, options);
+
+  return this._collection.find(conds, options);
+};
+
+/**
+ * Returns the query cursor
+ *
+ * #### Examples:
+ *
+ *     query.find().cursor();
+ *     query.cursor({ name: 'Burning Lights' });
+ *
+ * @param {Object} [criteria] mongodb selector
+ * @return {Object} cursor
+ * @api public
+ */
+
+Query.prototype.cursor = function cursor(criteria) {
+  if (this.op) {
+    if (this.op !== 'find') {
+      throw new TypeError('.cursor only support .find method');
+    }
+  } else {
+    this.find(criteria);
+  }
+
+  const conds = this._conditions;
+  const options = this._optionsForExec();
+
+  if (this.$useProjection) {
+    options.projection = this._fieldsForExec();
+  } else {
+    options.fields = this._fieldsForExec();
+  }
+
+  debug('findCursor', this._collection.collectionName, conds, options);
+  return this._collection.findCursor(conds, options);
+};
+
+/**
+ * Executes the query as a findOne() operation.
+ *
+ * #### Example:
+ *
+ *     query.findOne().where('name', /^Burning/);
+ *
+ *     query.findOne({ name: /^Burning/ })
+ *
+ *     await query.findOne({ name: /^Burning/ }); // executes
+ *
+ * @param {Object|Query} [criteria] mongodb selector
+ * @return {Query} this
+ * @api public
+ */
+
+Query.prototype.findOne = function(criteria) {
+  this.op = 'findOne';
+
+  if (Query.canMerge(criteria)) {
+    this.merge(criteria);
+  }
+
+  return this;
+};
+
+/**
+ * Executes a `findOne` Query
+ * @returns the results
+ */
+Query.prototype._findOne = async function _findOne() {
+  const conds = this._conditions;
+  const options = this._optionsForExec();
+
+  if (this.$useProjection) {
+    options.projection = this._fieldsForExec();
+  } else {
+    options.fields = this._fieldsForExec();
+  }
+
+  debug('findOne', this._collection.collectionName, conds, options);
+
+  return this._collection.findOne(conds, options);
+};
+
+/**
+ * Exectues the query as a count() operation.
+ *
+ * #### Example:
+ *
+ *     query.count().where('color', 'black').exec();
+ *
+ *     query.count({ color: 'black' })
+ *
+ *     await query.count({ color: 'black' });
+ *
+ *     const doc = await query.where('color', 'black').count();
+ *     console.log('there are %d kittens', count);
+ *
+ * @param {Object} [criteria] mongodb selector
+ * @return {Query} this
+ * @see mongodb http://www.mongodb.org/display/DOCS/Aggregation#Aggregation-Count
+ * @api public
+ */
+
+Query.prototype.count = function(criteria) {
+  this.op = 'count';
+  this._validate();
+
+  if (Query.canMerge(criteria)) {
+    this.merge(criteria);
+  }
+
+  return this;
+};
+
+/**
+ * Executes a `count` Query
+ * @returns the results
+ */
+Query.prototype._count = async function _count() {
+  const conds = this._conditions,
+      options = this._optionsForExec();
+
+  debug('count', this._collection.collectionName, conds, options);
+
+  return this._collection.count(conds, options);
+};
+
+/**
+ * Declares or executes a distinct() operation.
+ *
+ * #### Example:
+ *
+ *     await distinct(criteria, field)
+ *     distinct(criteria, field)
+ *     await distinct(field)
+ *     distinct(field)
+ *     await distinct()
+ *     distinct()
+ *
+ * @param {Object|Query} [criteria]
+ * @param {String} [field]
+ * @return {Query} this
+ * @see mongodb http://www.mongodb.org/display/DOCS/Aggregation#Aggregation-Distinct
+ * @api public
+ */
+
+Query.prototype.distinct = function(criteria, field) {
+  this.op = 'distinct';
+  this._validate();
+
+  if (!field &amp;&amp; typeof criteria === 'string') {
+    field = criteria;
+    criteria = undefined;
+  }
+
+  if ('string' == typeof field) {
+    this._distinctDoc = field;
+  }
+
+  if (Query.canMerge(criteria)) {
+    this.merge(criteria);
+  }
+
+  return this;
+};
+
+/**
+ * Executes a `distinct` Query
+ * @returns the results
+ */
+Query.prototype._distinct = async function _distinct() {
+  if (!this._distinctDoc) {
+    throw new Error('No value for `distinct` has been declared');
+  }
+
+  const conds = this._conditions,
+      options = this._optionsForExec();
+
+  debug('distinct', this._collection.collectionName, conds, options);
+
+  return this._collection.distinct(this._distinctDoc, conds, options);
+};
+
+/**
+ * Declare and/or execute this query as an `updateMany()` operation. This function will update _all_ documents that match
+ * `criteria`, rather than just the first one.
+ *
+ * _All paths passed that are not $atomic operations will become $set ops._
+ *
+ * #### Example:
+ *
+ *     // Update every document whose `title` contains 'test'
+ *     mquery().updateMany({ title: /test/ }, { year: 2017 })
+ *
+ * @param {Object} [criteria]
+ * @param {Object} [doc] the update command
+ * @param {Object} [options]
+ * @return {Query} this
+ * @api public
+ */
+
+Query.prototype.updateMany = function updateMany(criteria, doc, options) {
+  if (arguments.length === 1) {
+    doc = criteria;
+    criteria = options = undefined;
+  }
+
+  return _update(this, 'updateMany', criteria, doc, options);
+};
+
+/**
+ * Executes a `updateMany` Query
+ * @returns the results
+ */
+Query.prototype._updateMany = async function() {
+  return _updateExec(this, 'updateMany');
+};
+
+/**
+ * Declare and/or execute this query as an `updateOne()` operation. This function will _always_ update just one document,
+ * regardless of the `multi` option.
+ *
+ * _All paths passed that are not $atomic operations will become $set ops._
+ *
+ * #### Example:
+ *
+ *     // Update the first document whose `title` contains 'test'
+ *     mquery().updateMany({ title: /test/ }, { year: 2017 })
+ *
+ * @param {Object} [criteria]
+ * @param {Object} [doc] the update command
+ * @param {Object} [options]
+ * @return {Query} this
+ * @api public
+ */
+
+Query.prototype.updateOne = function updateOne(criteria, doc, options) {
+  if (arguments.length === 1) {
+    doc = criteria;
+    criteria = options = undefined;
+  }
+
+  return _update(this, 'updateOne', criteria, doc, options);
+};
+
+/**
+ * Executes a `updateOne` Query
+ * @returns the results
+ */
+Query.prototype._updateOne = async function() {
+  return _updateExec(this, 'updateOne');
+};
+
+/**
+ * Declare and/or execute this query as an `replaceOne()` operation. Similar
+ * to `updateOne()`, except `replaceOne()` is not allowed to use atomic
+ * modifiers (`$set`, `$push`, etc.). Calling `replaceOne()` will always
+ * replace the existing doc.
+ *
+ * #### Example:
+ *
+ *     // Replace the document with `_id` 1 with `{ _id: 1, year: 2017 }`
+ *     mquery().replaceOne({ _id: 1 }, { year: 2017 })
+ *
+ * @param {Object} [criteria]
+ * @param {Object} [doc] the update command
+ * @param {Object} [options]
+ * @return {Query} this
+ * @api public
+ */
+
+Query.prototype.replaceOne = function replaceOne(criteria, doc, options) {
+  if (arguments.length === 1) {
+    doc = criteria;
+    criteria = options = undefined;
+  }
+
+  this.setOptions({ overwrite: true });
+  return _update(this, 'replaceOne', criteria, doc, options);
+};
+
+/**
+ * Executes a `replaceOne` Query
+ * @returns the results
+ */
+Query.prototype._replaceOne = async function() {
+  return _updateExec(this, 'replaceOne');
+};
+
+/*!
+ * Internal helper for updateMany, updateOne
+ */
+
+function _update(query, op, criteria, doc, options) {
+  query.op = op;
+
+  if (Query.canMerge(criteria)) {
+    query.merge(criteria);
+  }
+
+  if (doc) {
+    query._mergeUpdate(doc);
+  }
+
+  if (utils.isObject(options)) {
+    // { overwrite: true }
+    query.setOptions(options);
+  }
+
+  return query;
+}
+
+/**
+ * Helper for de-duplicating "update*" functions
+ * @param {Query} query The Query Object (replacement for "this")
+ * @param {String} op The Operation to be done
+ * @returns the results
+ */
+async function _updateExec(query, op) {
+  const options = query._optionsForExec();
+
+  const criteria = query._conditions;
+  const doc = query._updateForExec();
+
+  debug('update', query._collection.collectionName, criteria, doc, options);
+
+  return query._collection[op](criteria, doc, options);
+}
+
+/**
+ * Declare and/or execute this query as a `deleteOne()` operation.
+ *
+ * #### Example:
+ *
+ *     await mquery(collection).deleteOne({ artist: 'Anne Murray' })
+ *
+ * @param {Object|Query} [criteria] mongodb selector
+ * @return {Query} this
+ * @api public
+ */
+
+Query.prototype.deleteOne = function(criteria) {
+  this.op = 'deleteOne';
+
+  if (Query.canMerge(criteria)) {
+    this.merge(criteria);
+  }
+
+  return this;
+};
+
+/**
+ * Executes a `deleteOne` Query
+ * @returns the results
+ */
+Query.prototype._deleteOne = async function() {
+  const options = this._optionsForExec();
+  delete options.justOne;
+
+  const conds = this._conditions;
+
+  debug('deleteOne', this._collection.collectionName, conds, options);
+
+  return this._collection.deleteOne(conds, options);
+};
+
+/**
+ * Declare and/or execute this query as a `deleteMany()` operation. Always deletes
+ * _every_ document that matches `criteria`.
+ *
+ * #### Example:
+ *
+ *     await mquery(collection).deleteMany({ artist: 'Anne Murray' })
+ *
+ * @param {Object|Query} [criteria] mongodb selector
+ * @return {Query} this
+ * @api public
+ */
+
+Query.prototype.deleteMany = function(criteria) {
+  this.op = 'deleteMany';
+
+  if (Query.canMerge(criteria)) {
+    this.merge(criteria);
+  }
+
+  return this;
+};
+
+/**
+ * Executes a `deleteMany` Query
+ * @returns the results
+ */
+Query.prototype._deleteMany = async function() {
+  const options = this._optionsForExec();
+  delete options.justOne;
+
+  const conds = this._conditions;
+
+  debug('deleteOne', this._collection.collectionName, conds, options);
+
+  return this._collection.deleteMany(conds, options);
+};
+
+/**
+ * Issues a mongodb [findAndModify](http://www.mongodb.org/display/DOCS/findAndModify+Command) update command.
+ *
+ * Finds a matching document, updates it according to the `update` arg, passing any `options`, and returns the found document (if any).
+ *
+ * #### Available options
+ *
+ * - `new`: bool - true to return the modified document rather than the original. defaults to true
+ * - `upsert`: bool - creates the object if it doesn't exist. defaults to false.
+ * - `sort`: if multiple docs are found by the conditions, sets the sort order to choose which doc to update
+ *
+ * #### Examples:
+ *
+ *     await query.findOneAndUpdate(conditions, update, options) // executes
+ *     query.findOneAndUpdate(conditions, update, options)  // returns Query
+ *     await query.findOneAndUpdate(conditions, update) // executes
+ *     query.findOneAndUpdate(conditions, update)           // returns Query
+ *     await query.findOneAndUpdate(update)             // returns Query
+ *     query.findOneAndUpdate(update)                       // returns Query
+ *     await query.findOneAndUpdate()                     // executes
+ *     query.findOneAndUpdate()                             // returns Query
+ *
+ * @param {Object|Query} [query]
+ * @param {Object} [doc]
+ * @param {Object} [options]
+ * @see mongodb http://www.mongodb.org/display/DOCS/findAndModify+Command
+ * @return {Query} this
+ * @api public
+ */
+
+Query.prototype.findOneAndUpdate = function(criteria, doc, options) {
+  this.op = 'findOneAndUpdate';
+  this._validate();
+
+  if (arguments.length === 1) {
+    doc = criteria;
+    criteria = options = undefined;
+  }
+
+  if (Query.canMerge(criteria)) {
+    this.merge(criteria);
+  }
+
+  // apply doc
+  if (doc) {
+    this._mergeUpdate(doc);
+  }
+
+  options &amp;&amp; this.setOptions(options);
+
+  return this;
+};
+
+/**
+ * Executes a `findOneAndUpdate` Query
+ * @returns the results
+ */
+Query.prototype._findOneAndUpdate = async function() {
+  const conds = this._conditions;
+  const update = this._updateForExec();
+  const options = this._optionsForExec();
+
+  return this._collection.findOneAndUpdate(conds, update, options);
+};
+
+/**
+ * Issues a mongodb [findAndModify](http://www.mongodb.org/display/DOCS/findAndModify+Command) remove command.
+ *
+ * Finds a matching document, removes it, returning the found document (if any).
+ *
+ * #### Available options
+ *
+ * - `sort`: if multiple docs are found by the conditions, sets the sort order to choose which doc to update
+ *
+ * #### Examples:
+ *
+ *     await A.where().findOneAndRemove(conditions, options) // executes
+ *     A.where().findOneAndRemove(conditions, options)  // return Query
+ *     await A.where().findOneAndRemove(conditions) // executes
+ *     A.where().findOneAndRemove(conditions) // returns Query
+ *     await A.where().findOneAndRemove()   // executes
+ *     A.where().findOneAndRemove()           // returns Query
+ *     A.where().findOneAndDelete()           // alias of .findOneAndRemove()
+ *
+ * @param {Object} [conditions]
+ * @param {Object} [options]
+ * @return {Query} this
+ * @see mongodb http://www.mongodb.org/display/DOCS/findAndModify+Command
+ * @api public
+ */
+
+Query.prototype.findOneAndRemove = Query.prototype.findOneAndDelete = function(conditions, options) {
+  this.op = 'findOneAndRemove';
+  this._validate();
+
+  // apply conditions
+  if (Query.canMerge(conditions)) {
+    this.merge(conditions);
+  }
+
+  // apply options
+  options &amp;&amp; this.setOptions(options);
+
+  return this;
+};
+
+/**
+ * Executes a `findOneAndRemove` Query
+ * @returns the results
+ */
+Query.prototype._findOneAndRemove = async function() {
+  const options = this._optionsForExec();
+  const conds = this._conditions;
+
+  return this._collection.findOneAndDelete(conds, options);
+};
+
+/**
+ * Add trace function that gets called when the query is executed.
+ * The function will be called with (method, queryInfo, query) and
+ * should return a callback function which will be called
+ * with (err, result, millis) when the query is complete.
+ *
+ * queryInfo is an object containing: {
+ *   collectionName: &lt;name of the collection>,
+ *   conditions: &lt;query criteria>,
+ *   options: &lt;comment, fields, readPreference, etc>,
+ *   doc: [document to update, if applicable]
+ * }
+ *
+ * NOTE: Does not trace stream queries.
+ *
+ * @param {Function} traceFunction
+ * @return {Query} this
+ * @api public
+ */
+Query.prototype.setTraceFunction = function(traceFunction) {
+  this._traceFunction = traceFunction;
+  return this;
+};
+
+/**
+ * Executes the query
+ *
+ * #### Examples:
+ *
+ *     query.exec();
+ *     await query.exec();
+ *     query.exec('update');
+ *     await query.exec('find');
+ *
+ * @param {String|Function} [operation]
+ * @api public
+ */
+
+Query.prototype.exec = async function exec(op) {
+  if (typeof op === 'string') {
+    this.op = op;
+  }
+
+  assert.ok(this.op, 'Missing query type: (find, etc)');
+
+  const fnName = '_' + this.op;
+
+  // better error, because default would list it as "this[fnName] is not a function"
+  if (typeof this[fnName] !== 'function') {
+    throw new TypeError(`this[${fnName}] is not a function`);
+  }
+
+  return this[fnName]();
+};
+
+/**
+ * Executes the query returning a `Promise` which will be
+ * resolved with either the doc(s) or rejected with the error.
+ *
+ * @param {Function} [resolve]
+ * @param {Function} [reject]
+ * @return {Promise}
+ * @api public
+ */
+
+Query.prototype.then = async function(res, rej) {
+  return this.exec().then(res, rej);
+};
+
+/**
+ * Returns a cursor for the given `find` query.
+ *
+ * @throws Error if operation is not a find
+ * @returns {Cursor} MongoDB driver cursor
+ */
+
+Query.prototype.cursor = function() {
+  if ('find' != this.op)
+    throw new Error('cursor() is only available for find');
+
+  const conds = this._conditions;
+
+  const options = this._optionsForExec();
+  if (this.$useProjection) {
+    options.projection = this._fieldsForExec();
+  } else {
+    options.fields = this._fieldsForExec();
+  }
+
+  debug('cursor', this._collection.collectionName, conds, options);
+
+  return this._collection.findCursor(conds, options);
+};
+
+/**
+ * Determines if field selection has been made.
+ *
+ * @return {Boolean}
+ * @api public
+ */
+
+Query.prototype.selected = function selected() {
+  return !!(this._fields &amp;&amp; Object.keys(this._fields).length > 0);
+};
+
+/**
+ * Determines if inclusive field selection has been made.
+ *
+ *     query.selectedInclusively() // false
+ *     query.select('name')
+ *     query.selectedInclusively() // true
+ *     query.selectedExlusively() // false
+ *
+ * @returns {Boolean}
+ */
+
+Query.prototype.selectedInclusively = function selectedInclusively() {
+  if (!this._fields) return false;
+
+  const keys = Object.keys(this._fields);
+  if (0 === keys.length) return false;
+
+  for (let i = 0; i &lt; keys.length; ++i) {
+    const key = keys[i];
+    if (0 === this._fields[key]) return false;
+    if (this._fields[key] &amp;&amp;
+        typeof this._fields[key] === 'object' &amp;&amp;
+        this._fields[key].$meta) {
+      return false;
+    }
+  }
+
+  return true;
+};
+
+/**
+ * Determines if exclusive field selection has been made.
+ *
+ *     query.selectedExlusively() // false
+ *     query.select('-name')
+ *     query.selectedExlusively() // true
+ *     query.selectedInclusively() // false
+ *
+ * @returns {Boolean}
+ */
+
+Query.prototype.selectedExclusively = function selectedExclusively() {
+  if (!this._fields) return false;
+
+  const keys = Object.keys(this._fields);
+  if (0 === keys.length) return false;
+
+  for (let i = 0; i &lt; keys.length; ++i) {
+    const key = keys[i];
+    if (0 === this._fields[key]) return true;
+  }
+
+  return false;
+};
+
+/**
+ * Merges `doc` with the current update object.
+ *
+ * @param {Object} doc
+ */
+
+Query.prototype._mergeUpdate = function(doc) {
+  if (!this._updateDoc) this._updateDoc = {};
+  if (doc instanceof Query) {
+    if (doc._updateDoc) {
+      utils.mergeClone(this._updateDoc, doc._updateDoc);
+    }
+  } else {
+    utils.mergeClone(this._updateDoc, doc);
+  }
+};
+
+/**
+ * Returns default options.
+ *
+ * @return {Object}
+ * @api private
+ */
+
+Query.prototype._optionsForExec = function() {
+  const options = utils.clone(this.options);
+  return options;
+};
+
+/**
+ * Returns fields selection for this query.
+ *
+ * @return {Object}
+ * @api private
+ */
+
+Query.prototype._fieldsForExec = function() {
+  return utils.clone(this._fields);
+};
+
+/**
+ * Return an update document with corrected $set operations.
+ *
+ * @api private
+ */
+
+Query.prototype._updateForExec = function() {
+  const update = utils.clone(this._updateDoc);
+  const ops = utils.keys(update);
+  const ret = {};
+
+  for (const op of ops) {
+    if (this.options.overwrite) {
+      ret[op] = update[op];
+      continue;
+    }
+
+    if ('$' !== op[0]) {
+      // fix up $set sugar
+      if (!ret.$set) {
+        if (update.$set) {
+          ret.$set = update.$set;
+        } else {
+          ret.$set = {};
+        }
+      }
+      ret.$set[op] = update[op];
+      if (!~ops.indexOf('$set')) ops.push('$set');
+    } else if ('$set' === op) {
+      if (!ret.$set) {
+        ret[op] = update[op];
+      }
+    } else {
+      ret[op] = update[op];
+    }
+  }
+
+  this._compiledUpdate = ret;
+  return ret;
+};
+
+/**
+ * Make sure _path is set.
+ *
+ * @parmam {String} method
+ */
+
+Query.prototype._ensurePath = function(method) {
+  if (!this._path) {
+    const msg = method + '() must be used after where() '
+                     + 'when called with these arguments';
+    throw new Error(msg);
+  }
+};
+
+/*!
+ * Permissions
+ */
+
+Query.permissions = require('./permissions');
+
+Query._isPermitted = function(a, b) {
+  const denied = Query.permissions[b];
+  if (!denied) return true;
+  return true !== denied[a];
+};
+
+Query.prototype._validate = function(action) {
+  let fail;
+  let validator;
+
+  if (undefined === action) {
+
+    validator = Query.permissions[this.op];
+    if ('function' != typeof validator) return true;
+
+    fail = validator(this);
+
+  } else if (!Query._isPermitted(action, this.op)) {
+    fail = action;
+  }
+
+  if (fail) {
+    throw new Error(fail + ' cannot be used with ' + this.op);
+  }
+};
+
+/**
+ * Determines if `conds` can be merged using `mquery().merge()`
+ *
+ * @param {Object} conds
+ * @return {Boolean}
+ */
+
+Query.canMerge = function(conds) {
+  return conds instanceof Query || utils.isObject(conds);
+};
+
+/**
+ * Set a trace function that will get called whenever a
+ * query is executed.
+ *
+ * See `setTraceFunction()` for details.
+ *
+ * @param {Object} conds
+ * @return {Boolean}
+ */
+Query.setGlobalTraceFunction = function(traceFunction) {
+  Query.traceFunction = traceFunction;
+};
+
+/*!
+ * Exports.
+ */
+
+Query.utils = utils;
+Query.env = require('./env');
+Query.Collection = require('./collection');
+Query.BaseCollection = require('./collection/collection');
+module.exports = exports = Query;
+
+// TODO
+// test utils
+</code></pre>
+        </article>
+    </section>
+
+
+
+
+</div>
+
+<nav>
+    <h2><a href="index.html">Home</a></h2><h3>Classes</h3><ul><li><a href="AWSSDKCredentialProvider.html">AWSSDKCredentialProvider</a></li><li><a href="AWSTemporaryCredentialProvider.html">AWSTemporaryCredentialProvider</a></li><li><a href="AbstractCursor.html">AbstractCursor</a></li><li><a href="AbstractOperation.html">AbstractOperation</a></li><li><a href="Adapter.html">Adapter</a></li><li><a href="Admin.html">Admin</a></li><li><a href="Agent.html">Agent</a></li><li><a href="AggregateOperation.html">AggregateOperation</a></li><li><a href="AggregationCursor.html">AggregationCursor</a></li><li><a href="AuthContext.html">AuthContext</a></li><li><a href="AuthProvider.html">AuthProvider</a></li><li><a href="AutoEncrypter.html">AutoEncrypter</a></li><li><a href="AutomatedCallbackWorkflow.html">AutomatedCallbackWorkflow</a></li><li><a href="Axios.html">Axios</a></li><li><a href="Axios$1.html">Axios$1</a></li><li><a href="AzureCredentialCache.html">AzureCredentialCache</a></li><li><a href="AzureMachineWorkflow.html">AzureMachineWorkflow</a></li><li><a href="BaseServer.html">BaseServer</a></li><li><a href="Batch.html">Batch</a></li><li><a href="BinaryReconstructor.html">BinaryReconstructor</a></li><li><a href="BufferPool.html">BufferPool</a></li><li><a href="BulkOperationBase.html">BulkOperationBase</a></li><li><a href="BulkWriteOperation.html">BulkWriteOperation</a></li><li><a href="BulkWriteResult.html">BulkWriteResult</a></li><li><a href="BulkWriteShimOperation.html">BulkWriteShimOperation</a></li><li><a href="CallbackWorkflow.html">CallbackWorkflow</a></li><li><a href="CancelToken.html">CancelToken</a></li><li><a href="CancelToken$1.html">CancelToken$1</a></li><li><a href="CancellationToken.html">CancellationToken</a></li><li><a href="global.html#CastError">CastError</a></li><li><a href="ChangeStream.html">ChangeStream</a></li><li><a href="ChangeStreamCursor.html">ChangeStreamCursor</a></li><li><a href="Client.html">Client</a></li><li><a href="ClientBulkWriteCommandBuilder.html">ClientBulkWriteCommandBuilder</a></li><li><a href="ClientBulkWriteCursor.html">ClientBulkWriteCursor</a></li><li><a href="ClientBulkWriteCursorResponse.html">ClientBulkWriteCursorResponse</a></li><li><a href="ClientBulkWriteExecutor.html">ClientBulkWriteExecutor</a></li><li><a href="ClientBulkWriteOperation.html">ClientBulkWriteOperation</a></li><li><a href="ClientBulkWriteResultsMerger.html">ClientBulkWriteResultsMerger</a></li><li><a href="ClientEncryption.html">ClientEncryption</a></li><li><a href="ClientSession.html">ClientSession</a></li><li><a href="CloseEvent.html">CloseEvent</a></li><li><a href="ClusterAdapter.html">ClusterAdapter</a></li><li><a href="global.html#Collection">Collection</a></li><li><a href="CollectionsOperation.html">CollectionsOperation</a></li><li><a href="CommandFailedEvent.html">CommandFailedEvent</a></li><li><a href="CommandOperation.html">CommandOperation</a></li><li><a href="CommandStartedEvent.html">CommandStartedEvent</a></li><li><a href="CommandSucceededEvent.html">CommandSucceededEvent</a></li><li><a href="Connection.html">Connection</a></li><li><a href="ConnectionCheckOutFailedEvent.html">ConnectionCheckOutFailedEvent</a></li><li><a href="ConnectionCheckOutStartedEvent.html">ConnectionCheckOutStartedEvent</a></li><li><a href="ConnectionCheckedInEvent.html">ConnectionCheckedInEvent</a></li><li><a href="ConnectionCheckedOutEvent.html">ConnectionCheckedOutEvent</a></li><li><a href="ConnectionClosedEvent.html">ConnectionClosedEvent</a></li><li><a href="ConnectionCreatedEvent.html">ConnectionCreatedEvent</a></li><li><a href="ConnectionPool.html">ConnectionPool</a></li><li><a href="ConnectionPoolClearedEvent.html">ConnectionPoolClearedEvent</a></li><li><a href="ConnectionPoolClosedEvent.html">ConnectionPoolClosedEvent</a></li><li><a href="ConnectionPoolCreatedEvent.html">ConnectionPoolCreatedEvent</a></li><li><a href="ConnectionPoolMetrics.html">ConnectionPoolMetrics</a></li><li><a href="ConnectionPoolMonitoringEvent.html">ConnectionPoolMonitoringEvent</a></li><li><a href="ConnectionPoolReadyEvent.html">ConnectionPoolReadyEvent</a></li><li><a href="ConnectionReadyEvent.html">ConnectionReadyEvent</a></li><li><a href="ContentDisposition.html">ContentDisposition</a></li><li><a href="CountOperation.html">CountOperation</a></li><li><a href="CreateCollectionOperation.html">CreateCollectionOperation</a></li><li><a href="CreateCollectionsError.html">CreateCollectionsError</a></li><li><a href="CreateIndexesOperation.html">CreateIndexesOperation</a></li><li><a href="CreateSearchIndexesOperation.html">CreateSearchIndexesOperation</a></li><li><a href="CryptoConnection.html">CryptoConnection</a></li><li><a href="CursorResponse.html">CursorResponse</a></li><li><a href="Db.html">Db</a></li><li><a href="DbStatsOperation.html">DbStatsOperation</a></li><li><a href="Decimal128.html">Decimal128</a></li><li><a href="Decoder.html">Decoder</a></li><li><a href="DeleteOperation.html">DeleteOperation</a></li><li><a href="DirEntry.html">DirEntry</a></li><li><a href="DistinctOperation.html">DistinctOperation</a></li><li><a href="DivergentArrayError.html">DivergentArrayError</a></li><li><a href="DocumentNotFoundError.html">DocumentNotFoundError</a></li><li><a href="DocumentSequence.html">DocumentSequence</a></li><li><a href="DropCollectionOperation.html">DropCollectionOperation</a></li><li><a href="DropDatabaseOperation.html">DropDatabaseOperation</a></li><li><a href="DropIndexOperation.html">DropIndexOperation</a></li><li><a href="DropSearchIndexOperation.html">DropSearchIndexOperation</a></li><li><a href="EachAsyncMultiError.html">EachAsyncMultiError</a></li><li><a href="Encoder.html">Encoder</a></li><li><a href="Encrypter.html">Encrypter</a></li><li><a href="global.html#Error">Error</a></li><li><a href="ErrorEvent.html">ErrorEvent</a></li><li><a href="EstimatedDocumentCountOperation.html">EstimatedDocumentCountOperation</a></li><li><a href="Event.html">Event</a></li><li><a href="Explain.html">Explain</a></li><li><a href="ExplainedCursorResponse.html">ExplainedCursorResponse</a></li><li><a href="FSWatcher.html">FSWatcher</a></li><li><a href="FindAndModifyOperation.html">FindAndModifyOperation</a></li><li><a href="FindCursor.html">FindCursor</a></li><li><a href="FindOneAndDeleteOperation.html">FindOneAndDeleteOperation</a></li><li><a href="FindOneAndReplaceOperation.html">FindOneAndReplaceOperation</a></li><li><a href="FindOneAndUpdateOperation.html">FindOneAndUpdateOperation</a></li><li><a href="FindOperation.html">FindOperation</a></li><li><a href="FindOperators.html">FindOperators</a></li><li><a href="FormData.html">FormData</a></li><li><a href="GCPMachineWorkflow.html">GCPMachineWorkflow</a></li><li><a href="GetMoreOperation.html">GetMoreOperation</a></li><li><a href="GridFSBucket.html">GridFSBucket</a></li><li><a href="GridFSBucketReadStream.html">GridFSBucketReadStream</a></li><li><a href="GridFSBucketWriteStream.html">GridFSBucketWriteStream</a></li><li><a href="Headers.html">Headers</a></li><li><a href="HostAddress.html">HostAddress</a></li><li><a href="HttpsProxyAgent.html">HttpsProxyAgent</a></li><li><a href="HumanCallbackWorkflow.html">HumanCallbackWorkflow</a></li><li><a href="InsertManyOperation.html">InsertManyOperation</a></li><li><a href="InsertOperation.html">InsertOperation</a></li><li><a href="InvalidSchemaOptionError.html">InvalidSchemaOptionError</a></li><li><a href="IsCappedOperation.html">IsCappedOperation</a></li><li><a href="JSONP.html">JSONP</a></li><li><a href="LegacyAWSTemporaryCredentialProvider.html">LegacyAWSTemporaryCredentialProvider</a></li><li><a href="LimitedSizeDocument.html">LimitedSizeDocument</a></li><li><a href="Limiter.html">Limiter</a></li><li><a href="List.html">List</a></li><li><a href="ListCollectionsCursor.html">ListCollectionsCursor</a></li><li><a href="ListCollectionsOperation.html">ListCollectionsOperation</a></li><li><a href="ListDatabasesOperation.html">ListDatabasesOperation</a></li><li><a href="ListIndexesCursor.html">ListIndexesCursor</a></li><li><a href="ListIndexesOperation.html">ListIndexesOperation</a></li><li><a href="ListSearchIndexesCursor.html">ListSearchIndexesCursor</a></li><li><a href="MachineWorkflow.html">MachineWorkflow</a></li><li><a href="MessageEvent.html">MessageEvent</a></li><li><a href="MissingSchemaError.html">MissingSchemaError</a></li><li><a href="MongoAPIError.html">MongoAPIError</a></li><li><a href="MongoAWSError.html">MongoAWSError</a></li><li><a href="MongoAzureError.html">MongoAzureError</a></li><li><a href="MongoBatchReExecutionError.html">MongoBatchReExecutionError</a></li><li><a href="MongoBulkWriteError.html">MongoBulkWriteError</a></li><li><a href="MongoChangeStreamError.html">MongoChangeStreamError</a></li><li><a href="MongoClient.html">MongoClient</a></li><li><a href="MongoClientAuthProviders.html">MongoClientAuthProviders</a></li><li><a href="MongoClientBulkWriteCursorError.html">MongoClientBulkWriteCursorError</a></li><li><a href="MongoClientBulkWriteError.html">MongoClientBulkWriteError</a></li><li><a href="MongoClientBulkWriteExecutionError.html">MongoClientBulkWriteExecutionError</a></li><li><a href="MongoCompatibilityError.html">MongoCompatibilityError</a></li><li><a href="MongoCredentials.html">MongoCredentials</a></li><li><a href="MongoCryptAzureKMSRequestError.html">MongoCryptAzureKMSRequestError</a></li><li><a href="MongoCryptCreateDataKeyError.html">MongoCryptCreateDataKeyError</a></li><li><a href="MongoCryptCreateEncryptedCollectionError.html">MongoCryptCreateEncryptedCollectionError</a></li><li><a href="MongoCryptError.html">MongoCryptError</a></li><li><a href="MongoCryptInvalidArgumentError.html">MongoCryptInvalidArgumentError</a></li><li><a href="MongoCryptKMSRequestNetworkTimeoutError.html">MongoCryptKMSRequestNetworkTimeoutError</a></li><li><a href="MongoCursorExhaustedError.html">MongoCursorExhaustedError</a></li><li><a href="MongoCursorInUseError.html">MongoCursorInUseError</a></li><li><a href="MongoDBCollectionNamespace.html">MongoDBCollectionNamespace</a></li><li><a href="MongoDBNamespace.html">MongoDBNamespace</a></li><li><a href="MongoDBOIDC.html">MongoDBOIDC</a></li><li><a href="MongoDBResponse.html">MongoDBResponse</a></li><li><a href="MongoDecompressionError.html">MongoDecompressionError</a></li><li><a href="MongoDriverError.html">MongoDriverError</a></li><li><a href="MongoError.html">MongoError</a></li><li><a href="MongoExpiredSessionError.html">MongoExpiredSessionError</a></li><li><a href="MongoGCPError.html">MongoGCPError</a></li><li><a href="MongoGridFSChunkError.html">MongoGridFSChunkError</a></li><li><a href="MongoGridFSStreamError.html">MongoGridFSStreamError</a></li><li><a href="MongoInvalidArgumentError.html">MongoInvalidArgumentError</a></li><li><a href="MongoKerberosError.html">MongoKerberosError</a></li><li><a href="MongoLogger.html">MongoLogger</a></li><li><a href="MongoMissingCredentialsError.html">MongoMissingCredentialsError</a></li><li><a href="MongoMissingDependencyError.html">MongoMissingDependencyError</a></li><li><a href="MongoNetworkError.html">MongoNetworkError</a></li><li><a href="MongoNetworkTimeoutError.html">MongoNetworkTimeoutError</a></li><li><a href="MongoNotConnectedError.html">MongoNotConnectedError</a></li><li><a href="MongoOIDCError.html">MongoOIDCError</a></li><li><a href="MongoParseError.html">MongoParseError</a></li><li><a href="MongoRuntimeError.html">MongoRuntimeError</a></li><li><a href="MongoServerClosedError.html">MongoServerClosedError</a></li><li><a href="MongoServerError.html">MongoServerError</a></li><li><a href="MongoServerSelectionError.html">MongoServerSelectionError</a></li><li><a href="MongoSystemError.html">MongoSystemError</a></li><li><a href="MongoTailableCursorError.html">MongoTailableCursorError</a></li><li><a href="MongoTopologyClosedError.html">MongoTopologyClosedError</a></li><li><a href="MongoTransactionError.html">MongoTransactionError</a></li><li><a href="MongoUnexpectedServerResponseError.html">MongoUnexpectedServerResponseError</a></li><li><a href="MongoWriteConcernError.html">MongoWriteConcernError</a></li><li><a href="MongocryptdManager.html">MongocryptdManager</a></li><li><a href="MongooseBulkSaveIncompleteError.html">MongooseBulkSaveIncompleteError</a></li><li><a href="MongooseBulkWriteError.html">MongooseBulkWriteError</a></li><li><a href="Monitor.html">Monitor</a></li><li><a href="MonitorInterval.html">MonitorInterval</a></li><li><a href="Namespace.html">Namespace</a></li><li><a href="ObjectExpectedError.html">ObjectExpectedError</a></li><li><a href="ObjectId.html">ObjectId</a></li><li><a href="ObjectParameterError.html">ObjectParameterError</a></li><li><a href="OnDemandDocument.html">OnDemandDocument</a></li><li><a href="OpCompressedRequest.html">OpCompressedRequest</a></li><li><a href="OpMsgRequest.html">OpMsgRequest</a></li><li><a href="OpMsgResponse.html">OpMsgResponse</a></li><li><a href="OpQueryRequest.html">OpQueryRequest</a></li><li><a href="OpReply.html">OpReply</a></li><li><a href="OptionsOperation.html">OptionsOperation</a></li><li><a href="OrderedBulkOperation.html">OrderedBulkOperation</a></li><li><a href="OverwriteModelError.html">OverwriteModelError</a></li><li><a href="ParallelSaveError.html">ParallelSaveError</a></li><li><a href="ParallelValidateError.html">ParallelValidateError</a></li><li><a href="ParentNamespace.html">ParentNamespace</a></li><li><a href="PerMessageDeflate.html">PerMessageDeflate</a></li><li><a href="Polling.html">Polling</a></li><li><a href="PoolClearedError.html">PoolClearedError</a></li><li><a href="PoolClearedOnNetworkError.html">PoolClearedOnNetworkError</a></li><li><a href="PoolClosedError.html">PoolClosedError</a></li><li><a href="ProfilingLevelOperation.html">ProfilingLevelOperation</a></li><li><a href="RTTPinger.html">RTTPinger</a></li><li><a href="RTTSampler.html">RTTSampler</a></li><li><a href="ReadConcern.html">ReadConcern</a></li><li><a href="ReadPreference.html">ReadPreference</a></li><li><a href="Receiver.html">Receiver</a></li><li><a href="RemoteSocket.html">RemoteSocket</a></li><li><a href="RemoveUserOperation.html">RemoveUserOperation</a></li><li><a href="RenameOperation.html">RenameOperation</a></li><li><a href="ReplaceOneOperation.html">ReplaceOneOperation</a></li><li><a href="Request.html">Request</a></li><li><a href="Response.html">Response</a></li><li><a href="RunCommandCursor.html">RunCommandCursor</a></li><li><a href="RunCommandOperation.html">RunCommandOperation</a></li><li><a href="SchemaArrayOptions.html">SchemaArrayOptions</a></li><li><a href="SchemaBufferOptions.html">SchemaBufferOptions</a></li><li><a href="SchemaDateOptions.html">SchemaDateOptions</a></li><li><a href="SchemaDocumentOptions.html">SchemaDocumentOptions</a></li><li><a href="SchemaMapOptions.html">SchemaMapOptions</a></li><li><a href="SchemaNumberOptions.html">SchemaNumberOptions</a></li><li><a href="SchemaObjectIdOptions.html">SchemaObjectIdOptions</a></li><li><a href="SchemaStringOptions.html">SchemaStringOptions</a></li><li><a href="SchemaSubdocumentOptions.html">SchemaSubdocumentOptions</a></li><li><a href="global.html#SchemaTypeOptions">SchemaTypeOptions</a></li><li><a href="Sender.html">Sender</a></li><li><a href="Server.html">Server</a></li><li><a href="ServerCapabilities.html">ServerCapabilities</a></li><li><a href="ServerClosedEvent.html">ServerClosedEvent</a></li><li><a href="ServerDescription.html">ServerDescription</a></li><li><a href="ServerDescriptionChangedEvent.html">ServerDescriptionChangedEvent</a></li><li><a href="ServerHeartbeatFailedEvent.html">ServerHeartbeatFailedEvent</a></li><li><a href="ServerHeartbeatStartedEvent.html">ServerHeartbeatStartedEvent</a></li><li><a href="ServerHeartbeatSucceededEvent.html">ServerHeartbeatSucceededEvent</a></li><li><a href="ServerOpeningEvent.html">ServerOpeningEvent</a></li><li><a href="ServerSelectionEvent.html">ServerSelectionEvent</a></li><li><a href="ServerSelectionFailedEvent.html">ServerSelectionFailedEvent</a></li><li><a href="ServerSelectionStartedEvent.html">ServerSelectionStartedEvent</a></li><li><a href="ServerSelectionSucceededEvent.html">ServerSelectionSucceededEvent</a></li><li><a href="ServerSession.html">ServerSession</a></li><li><a href="ServerSessionPool.html">ServerSessionPool</a></li><li><a href="SetOptionError.html">SetOptionError</a></li><li><a href="SetOptionInnerError.html">SetOptionInnerError</a></li><li><a href="SetProfilingLevelOperation.html">SetProfilingLevelOperation</a></li><li><a href="SeverityLevelMap.html">SeverityLevelMap</a></li><li><a href="SizedMessageTransform.html">SizedMessageTransform</a></li><li><a href="Socket.html">Socket</a></li><li><a href="SrvPoller.html">SrvPoller</a></li><li><a href="SrvPollingEvent.html">SrvPollingEvent</a></li><li><a href="global.html#StateMachine">StateMachine</a></li><li><a href="StreamDescription.html">StreamDescription</a></li><li><a href="StrictEventEmitter.html">StrictEventEmitter</a></li><li><a href="StrictModeError.html">StrictModeError</a></li><li><a href="StrictPopulateError.html">StrictPopulateError</a></li><li><a href="SyncIndexesError.html">SyncIndexesError</a></li><li><a href="Timeout.html">Timeout</a></li><li><a href="TimeoutError.html">TimeoutError</a></li><li><a href="TokenCache.html">TokenCache</a></li><li><a href="TokenMachineWorkflow.html">TokenMachineWorkflow</a></li><li><a href="Topology.html">Topology</a></li><li><a href="TopologyClosedEvent.html">TopologyClosedEvent</a></li><li><a href="TopologyDescription.html">TopologyDescription</a></li><li><a href="TopologyDescriptionChangedEvent.html">TopologyDescriptionChangedEvent</a></li><li><a href="TopologyOpeningEvent.html">TopologyOpeningEvent</a></li><li><a href="Transaction.html">Transaction</a></li><li><a href="Transport.html">Transport</a></li><li><a href="TypedEventEmitter.html">TypedEventEmitter</a></li><li><a href="UUID.html">UUID</a></li><li><a href="UnorderedBulkOperation.html">UnorderedBulkOperation</a></li><li><a href="UpdateManyOperation.html">UpdateManyOperation</a></li><li><a href="UpdateOneOperation.html">UpdateOneOperation</a></li><li><a href="UpdateOperation.html">UpdateOperation</a></li><li><a href="UpdateSearchIndexOperation.html">UpdateSearchIndexOperation</a></li><li><a href="ValidateCollectionOperation.html">ValidateCollectionOperation</a></li><li><a href="ValidationError.html">ValidationError</a></li><li><a href="ValidatorError.html">ValidatorError</a></li><li><a href="VersionError.html">VersionError</a></li><li><a href="WaitQueueTimeoutError.html">WaitQueueTimeoutError</a></li><li><a href="WaitingForSuitableServerEvent.html">WaitingForSuitableServerEvent</a></li><li><a href="WebSocket.html">WebSocket</a></li><li><a href="WebSocketResponse.html">WebSocketResponse</a></li><li><a href="WebSocketServer.html">WebSocketServer</a></li><li><a href="WebTransport.html">WebTransport</a></li><li><a href="WriteConcern.html">WriteConcern</a></li><li><a href="WriteConcernError.html">WriteConcernError</a></li><li><a href="WriteError.html">WriteError</a></li><li><a href="uServer.html">uServer</a></li></ul><h3>Events</h3><ul><li><a href="AbstractCursor.html#.event:CLOSE">CLOSE</a></li><li><a href="ChangeStream.html#.event:CHANGE">CHANGE</a></li><li><a href="ChangeStream.html#.event:CLOSE">CLOSE</a></li><li><a href="ChangeStream.html#.event:END">END</a></li><li><a href="ChangeStream.html#.event:ERROR">ERROR</a></li><li><a href="ChangeStream.html#.event:INIT">INIT</a></li><li><a href="ChangeStream.html#.event:MORE">MORE</a></li><li><a href="ChangeStream.html#.event:RESPONSE">RESPONSE</a></li><li><a href="ChangeStream.html#.event:RESUME_TOKEN_CHANGED">RESUME_TOKEN_CHANGED</a></li><li><a href="Connection.html#.event:CLOSE">CLOSE</a></li><li><a href="Connection.html#.event:CLUSTER_TIME_RECEIVED">CLUSTER_TIME_RECEIVED</a></li><li><a href="Connection.html#.event:COMMAND_FAILED">COMMAND_FAILED</a></li><li><a href="Connection.html#.event:COMMAND_STARTED">COMMAND_STARTED</a></li><li><a href="Connection.html#.event:COMMAND_SUCCEEDED">COMMAND_SUCCEEDED</a></li><li><a href="Connection.html#.event:PINNED">PINNED</a></li><li><a href="Connection.html#.event:UNPINNED">UNPINNED</a></li><li><a href="ConnectionPool.html#.event:CONNECTION_CHECKED_IN">CONNECTION_CHECKED_IN</a></li><li><a href="ConnectionPool.html#.event:CONNECTION_CHECKED_OUT">CONNECTION_CHECKED_OUT</a></li><li><a href="ConnectionPool.html#.event:CONNECTION_CHECK_OUT_FAILED">CONNECTION_CHECK_OUT_FAILED</a></li><li><a href="ConnectionPool.html#.event:CONNECTION_CHECK_OUT_STARTED">CONNECTION_CHECK_OUT_STARTED</a></li><li><a href="ConnectionPool.html#.event:CONNECTION_CLOSED">CONNECTION_CLOSED</a></li><li><a href="ConnectionPool.html#.event:CONNECTION_CREATED">CONNECTION_CREATED</a></li><li><a href="ConnectionPool.html#.event:CONNECTION_POOL_CLEARED">CONNECTION_POOL_CLEARED</a></li><li><a href="ConnectionPool.html#.event:CONNECTION_POOL_CLOSED">CONNECTION_POOL_CLOSED</a></li><li><a href="ConnectionPool.html#.event:CONNECTION_POOL_CREATED">CONNECTION_POOL_CREATED</a></li><li><a href="ConnectionPool.html#.event:CONNECTION_POOL_READY">CONNECTION_POOL_READY</a></li><li><a href="ConnectionPool.html#.event:CONNECTION_READY">CONNECTION_READY</a></li><li><a href="GridFSBucket.html#.event:INDEX">INDEX</a></li><li><a href="GridFSBucketReadStream.html#.event:FILE">FILE</a></li><li><a href="Server.html#.event:CLOSED">CLOSED</a></li><li><a href="Server.html#.event:CONNECT">CONNECT</a></li><li><a href="Server.html#.event:DESCRIPTION_RECEIVED">DESCRIPTION_RECEIVED</a></li><li><a href="Server.html#.event:ENDED">ENDED</a></li><li><a href="Server.html#.event:SERVER_HEARTBEAT_FAILED">SERVER_HEARTBEAT_FAILED</a></li><li><a href="Server.html#.event:SERVER_HEARTBEAT_STARTED">SERVER_HEARTBEAT_STARTED</a></li><li><a href="Server.html#.event:SERVER_HEARTBEAT_SUCCEEDED">SERVER_HEARTBEAT_SUCCEEDED</a></li><li><a href="SrvPoller.html#.event:SRV_RECORD_DISCOVERY">SRV_RECORD_DISCOVERY</a></li><li><a href="Topology.html#.event:CLOSE">CLOSE</a></li><li><a href="Topology.html#.event:CONNECT">CONNECT</a></li><li><a href="Topology.html#.event:ERROR">ERROR</a></li><li><a href="Topology.html#.event:OPEN">OPEN</a></li><li><a href="Topology.html#.event:SERVER_CLOSED">SERVER_CLOSED</a></li><li><a href="Topology.html#.event:SERVER_DESCRIPTION_CHANGED">SERVER_DESCRIPTION_CHANGED</a></li><li><a href="Topology.html#.event:SERVER_OPENING">SERVER_OPENING</a></li><li><a href="Topology.html#.event:TIMEOUT">TIMEOUT</a></li><li><a href="Topology.html#.event:TOPOLOGY_CLOSED">TOPOLOGY_CLOSED</a></li><li><a href="Topology.html#.event:TOPOLOGY_DESCRIPTION_CHANGED">TOPOLOGY_DESCRIPTION_CHANGED</a></li><li><a href="Topology.html#.event:TOPOLOGY_OPENING">TOPOLOGY_OPENING</a></li><li><a href="%2560index-single-done%2560_%2520Emitted%2520when%2520an%2520individual%2520index%2520finishes%2520within%2520%2560Model_ensureIndexes%2560.%2520If%2520an%2520error%2520occurred%2520it%2520is%2520passed%2520with%2520the%2520event.%2520The%2520fields,%2520options.html#event:andindexnamearealsopassed."> and index name are also passed.</a></li><li><a href="%2560operation-end%2560_%2520Emitted%2520when%2520a%2520call%2520to%2520the%2520MongoDB%2520Node.js%2520driver,%2520like%2520a%2520%2560find()%2560%2520or%2520%2560insertOne()%2560.html#event:eithersucceedsorerrors."> either succeeds or errors.</a></li><li><a href="global.html#event:%2560end%2560:Emittedwhenthestreamisexhausted">`end`: Emitted when the stream is exhausted</a></li><li><a href="global.html#event:%2560init%2560:Emittedaftertheschemaiscompiledintoa%2560Model%2560.">`init`: Emitted after the schema is compiled into a `Model`.</a></li><li><a href="global.html#event:%2560save%2560:Emittedwhenthedocumentissuccessfullysaved">`save`: Emitted when the document is successfully saved</a></li></ul><h3>Mixins</h3><ul><li><a href="EventTarget.html">EventTarget</a></li><li><a href="FsEventsHandler.html">FsEventsHandler</a></li><li><a href="NodeFsHandler.html">NodeFsHandler</a></li></ul><h3>Global</h3><ul><li><a href="global.html"></a></li><li><a href="global.html#$__save">$__save</a></li><li><a href="global.html#$defineProperty">$defineProperty</a></li><li><a href="global.html#$format">$format</a></li><li><a href="global.html#$model">$model</a></li><li><a href="global.html#$parent">$parent</a></li><li><a href="global.html#$print">$print</a></li><li><a href="global.html#$withinCmd">$withinCmd</a></li><li><a href="global.html#APM_EVENTS">APM_EVENTS</a></li><li><a href="global.html#AUTH_MECHS_AUTH_SRC_EXTERNAL">AUTH_MECHS_AUTH_SRC_EXTERNAL</a></li><li><a href="global.html#AUTH_PROVIDERS">AUTH_PROVIDERS</a></li><li><a href="global.html#AUTOMATED_TIMEOUT_MS">AUTOMATED_TIMEOUT_MS</a></li><li><a href="global.html#AZURE_BASE_URL">AZURE_BASE_URL</a></li><li><a href="global.html#AZURE_HEADERS">AZURE_HEADERS</a></li><li><a href="global.html#AbortError">AbortError</a></li><li><a href="global.html#Accepts">Accepts</a></li><li><a href="global.html#Aggregate">Aggregate</a></li><li><a href="global.html#ArraySubdocument">ArraySubdocument</a></li><li><a href="global.html#AuthMechanism">AuthMechanism</a></li><li><a href="global.html#AutoEncryptionLoggerLevel">AutoEncryptionLoggerLevel</a></li><li><a href="global.html#AxiosError">AxiosError</a></li><li><a href="global.html#AxiosError$1">AxiosError$1</a></li><li><a href="global.html#AxiosURLSearchParams">AxiosURLSearchParams</a></li><li><a href="global.html#Base64Id">Base64Id</a></li><li><a href="global.html#BatchType">BatchType</a></li><li><a href="global.html#Body">Body</a></li><li><a href="global.html#Buffer">Buffer</a></li><li><a href="global.html#CALLBACK_RESULT_ERROR">CALLBACK_RESULT_ERROR</a></li><li><a href="global.html#CMAP_EVENTS">CMAP_EVENTS</a></li><li><a href="global.html#COMMAND_FAILED">COMMAND_FAILED</a></li><li><a href="global.html#COMMAND_STARTED">COMMAND_STARTED</a></li><li><a href="global.html#COMMAND_SUCCEEDED">COMMAND_SUCCEEDED</a></li><li><a href="global.html#CONNECTION_CHECKED_IN">CONNECTION_CHECKED_IN</a></li><li><a href="global.html#CONNECTION_CHECKED_OUT">CONNECTION_CHECKED_OUT</a></li><li><a href="global.html#CONNECTION_CHECK_OUT_FAILED">CONNECTION_CHECK_OUT_FAILED</a></li><li><a href="global.html#CONNECTION_CHECK_OUT_STARTED">CONNECTION_CHECK_OUT_STARTED</a></li><li><a href="global.html#CONNECTION_CLOSED">CONNECTION_CLOSED</a></li><li><a href="global.html#CONNECTION_CREATED">CONNECTION_CREATED</a></li><li><a href="global.html#CONNECTION_POOL_CLEARED">CONNECTION_POOL_CLEARED</a></li><li><a href="global.html#CONNECTION_POOL_CLOSED">CONNECTION_POOL_CLOSED</a></li><li><a href="global.html#CONNECTION_POOL_CREATED">CONNECTION_POOL_CREATED</a></li><li><a href="global.html#CONNECTION_POOL_READY">CONNECTION_POOL_READY</a></li><li><a href="global.html#CONNECTION_READY">CONNECTION_READY</a></li><li><a href="global.html#COSMOS_DB_CHECK">COSMOS_DB_CHECK</a></li><li><a href="global.html#COSMOS_DB_MSG">COSMOS_DB_MSG</a></li><li><a href="global.html#CURSOR_FLAGS">CURSOR_FLAGS</a></li><li><a href="global.html#CanceledError">CanceledError</a></li><li><a href="global.html#CanceledError$1">CanceledError$1</a></li><li><a href="global.html#Compressor">Compressor</a></li><li><a href="global.html#DB_AGGREGATE_COLLECTION">DB_AGGREGATE_COLLECTION</a></li><li><a href="global.html#DEFAULT_ALLOWED_HOSTS">DEFAULT_ALLOWED_HOSTS</a></li><li><a href="global.html#DEFAULT_MAX_DOCUMENT_LENGTH">DEFAULT_MAX_DOCUMENT_LENGTH</a></li><li><a href="global.html#DOCUMENT_DB_CHECK">DOCUMENT_DB_CHECK</a></li><li><a href="global.html#DOCUMENT_DB_MSG">DOCUMENT_DB_MSG</a></li><li><a href="global.html#DOT_LITERAL">DOT_LITERAL</a></li><li><a href="global.html#Delegator">Delegator</a></li><li><a href="global.html#DeprecationError">DeprecationError</a></li><li><a href="global.html#Document">Document</a></li><li><a href="global.html#DocumentProvider">DocumentProvider</a></li><li><a href="global.html#EMPTY_V">EMPTY_V</a></li><li><a href="global.html#ENDPOINT_RESULT_ERROR">ENDPOINT_RESULT_ERROR</a></li><li><a href="global.html#Emitter">Emitter</a></li><li><a href="global.html#ExplainVerbosity">ExplainVerbosity</a></li><li><a href="global.html#FEATURE_FLAGS">FEATURE_FLAGS</a></li><li><a href="global.html#FIELD_NAME_REGEXP">FIELD_NAME_REGEXP</a></li><li><a href="global.html#FIRST_CHAR_REGEXP">FIRST_CHAR_REGEXP</a></li><li><a href="global.html#FLAGS">FLAGS</a></li><li><a href="global.html#FSEventsWatchers">FSEventsWatchers</a></li><li><a href="global.html#FetchError">FetchError</a></li><li><a href="global.html#FsWatchInstances">FsWatchInstances</a></li><li><a href="global.html#GCP_BASE_URL">GCP_BASE_URL</a></li><li><a href="global.html#GCP_HEADERS">GCP_HEADERS</a></li><li><a href="global.html#GLIBC">GLIBC</a></li><li><a href="global.html#GSSAPICanonicalizationValue">GSSAPICanonicalizationValue</a></li><li><a href="global.html#HEARTBEAT_EVENTS">HEARTBEAT_EVENTS</a></li><li><a href="global.html#HUMAN_TIMEOUT_MS">HUMAN_TIMEOUT_MS</a></li><li><a href="global.html#IPv4SegmentFormat">IPv4SegmentFormat</a></li><li><a href="global.html#Kareem">Kareem</a></li><li><a href="global.html#LDD_PATH">LDD_PATH</a></li><li><a href="global.html#LEGACY_HELLO_COMMAND">LEGACY_HELLO_COMMAND</a></li><li><a href="global.html#LEGACY_HELLO_COMMAND_CAMEL_CASE">LEGACY_HELLO_COMMAND_CAMEL_CASE</a></li><li><a href="global.html#LEGACY_NOT_PRIMARY_OR_SECONDARY_ERROR_MESSAGE">LEGACY_NOT_PRIMARY_OR_SECONDARY_ERROR_MESSAGE</a></li><li><a href="global.html#LEGACY_NOT_WRITABLE_PRIMARY_ERROR_MESSAGE">LEGACY_NOT_WRITABLE_PRIMARY_ERROR_MESSAGE</a></li><li><a href="global.html#LEGAL_TCP_SOCKET_OPTIONS">LEGAL_TCP_SOCKET_OPTIONS</a></li><li><a href="global.html#LEGAL_TLS_SOCKET_OPTIONS">LEGAL_TLS_SOCKET_OPTIONS</a></li><li><a href="global.html#LENGTH_EAN_8">LENGTH_EAN_8</a></li><li><a href="global.html#LOCAL_SERVER_EVENTS">LOCAL_SERVER_EVENTS</a></li><li><a href="global.html#MATCHING_GROUP_REGEXP">MATCHING_GROUP_REGEXP</a></li><li><a href="global.html#MESSAGE_OVERHEAD_BYTES">MESSAGE_OVERHEAD_BYTES</a></li><li><a href="global.html#MISSING_CREDENTIALS_ERROR">MISSING_CREDENTIALS_ERROR</a></li><li><a href="global.html#MONGODB_ERROR_CODES">MONGODB_ERROR_CODES</a></li><li><a href="global.html#MONGODB_WARNING_CODE">MONGODB_WARNING_CODE</a></li><li><a href="global.html#MONGO_CLIENT_EVENTS">MONGO_CLIENT_EVENTS</a></li><li><a href="global.html#MUSL">MUSL</a></li><li><a href="global.html#Model">Model</a></li><li><a href="global.html#MongoErrorLabel">MongoErrorLabel</a></li><li><a href="global.html#MongoLoggableComponent">MongoLoggableComponent</a></li><li><a href="global.html#Mongoose">Mongoose</a></li><li><a href="global.html#MongooseBuffer">MongooseBuffer</a></li><li><a href="global.html#MongooseDocumentArray">MongooseDocumentArray</a></li><li><a href="global.html#NODE_IS_RECOVERING_ERROR_MESSAGE">NODE_IS_RECOVERING_ERROR_MESSAGE</a></li><li><a href="global.html#NativeCollection">NativeCollection</a></li><li><a href="global.html#NativeConnection">NativeConnection</a></li><li><a href="global.html#Negotiator">Negotiator</a></li><li><a href="global.html#OIDC_VERSION">OIDC_VERSION</a></li><li><a href="global.html#OIDC_WORKFLOWS">OIDC_WORKFLOWS</a></li><li><a href="global.html#PARAM_REGEXP">PARAM_REGEXP</a></li><li><a href="global.html#POSIX_REGEX_SOURCE">POSIX_REGEX_SOURCE</a></li><li><a href="global.html#PoolState">PoolState</a></li><li><a href="global.html#ProfilingLevel">ProfilingLevel</a></li><li><a href="global.html#QESC_REGEXP">QESC_REGEXP</a></li><li><a href="global.html#QUOTE_REGEXP">QUOTE_REGEXP</a></li><li><a href="global.html#Query">Query</a></li><li><a href="global.html#RESERVED_EVENTS">RESERVED_EVENTS</a></li><li><a href="global.html#RESULT_PROPERTIES">RESULT_PROPERTIES</a></li><li><a href="global.html#RE_GLIBC_VERSION">RE_GLIBC_VERSION</a></li><li><a href="global.html#ReadConcernLevel">ReadConcernLevel</a></li><li><a href="global.html#ReadPreferenceMode">ReadPreferenceMode</a></li><li><a href="global.html#ReadableAsyncKit">ReadableAsyncKit</a></li><li><a href="global.html#ReadableParallel">ReadableParallel</a></li><li><a href="global.html#ReadableSerial">ReadableSerial</a></li><li><a href="global.html#ReadableSerialOrdered">ReadableSerialOrdered</a></li><li><a href="global.html#ReturnDocument">ReturnDocument</a></li><li><a href="global.html#Route">Route</a></li><li><a href="global.html#SENSITIVE_COMMANDS">SENSITIVE_COMMANDS</a></li><li><a href="global.html#SERVER_CLOSED">SERVER_CLOSED</a></li><li><a href="global.html#SERVER_DESCRIPTION_CHANGED">SERVER_DESCRIPTION_CHANGED</a></li><li><a href="global.html#SERVER_HEARTBEAT_FAILED">SERVER_HEARTBEAT_FAILED</a></li><li><a href="global.html#SERVER_HEARTBEAT_STARTED">SERVER_HEARTBEAT_STARTED</a></li><li><a href="global.html#SERVER_HEARTBEAT_SUCCEEDED">SERVER_HEARTBEAT_SUCCEEDED</a></li><li><a href="global.html#SERVER_OPENING">SERVER_OPENING</a></li><li><a href="global.html#SERVER_RELAY_EVENTS">SERVER_RELAY_EVENTS</a></li><li><a href="global.html#SERVER_SELECTION_FAILED">SERVER_SELECTION_FAILED</a></li><li><a href="global.html#SERVER_SELECTION_STARTED">SERVER_SELECTION_STARTED</a></li><li><a href="global.html#SERVER_SELECTION_SUCCEEDED">SERVER_SELECTION_SUCCEEDED</a></li><li><a href="global.html#SEVERITY_LEVEL_MAP">SEVERITY_LEVEL_MAP</a></li><li><a href="global.html#Schema">Schema</a></li><li><a href="global.html#SchemaArray">SchemaArray</a></li><li><a href="global.html#SchemaBigInt">SchemaBigInt</a></li><li><a href="global.html#SchemaBoolean">SchemaBoolean</a></li><li><a href="global.html#SchemaBuffer">SchemaBuffer</a></li><li><a href="global.html#SchemaDate">SchemaDate</a></li><li><a href="global.html#SchemaDecimal128">SchemaDecimal128</a></li><li><a href="global.html#SchemaDocumentArray">SchemaDocumentArray</a></li><li><a href="global.html#SchemaDocumentArrayElement">SchemaDocumentArrayElement</a></li><li><a href="global.html#SchemaMixed">SchemaMixed</a></li><li><a href="global.html#SchemaNumber">SchemaNumber</a></li><li><a href="global.html#SchemaObjectId">SchemaObjectId</a></li><li><a href="global.html#SchemaString">SchemaString</a></li><li><a href="global.html#SchemaSubdocument">SchemaSubdocument</a></li><li><a href="global.html#SchemaType">SchemaType</a></li><li><a href="global.html#SchemaUUID">SchemaUUID</a></li><li><a href="global.html#ServerApiVersion">ServerApiVersion</a></li><li><a href="global.html#ServerMonitoringMode">ServerMonitoringMode</a></li><li><a href="global.html#ServerType">ServerType</a></li><li><a href="global.html#SeverityLevel">SeverityLevel</a></li><li><a href="global.html#Subdocument">Subdocument</a></li><li><a href="global.html#THROTTLE_MS">THROTTLE_MS</a></li><li><a href="global.html#TOKEN_MISSING_ERROR">TOKEN_MISSING_ERROR</a></li><li><a href="global.html#TOKEN_RESOURCE_MISSING_ERROR">TOKEN_RESOURCE_MISSING_ERROR</a></li><li><a href="global.html#TOPOLOGY_CLOSED">TOPOLOGY_CLOSED</a></li><li><a href="global.html#TOPOLOGY_DESCRIPTION_CHANGED">TOPOLOGY_DESCRIPTION_CHANGED</a></li><li><a href="global.html#TOPOLOGY_EVENTS">TOPOLOGY_EVENTS</a></li><li><a href="global.html#TOPOLOGY_OPENING">TOPOLOGY_OPENING</a></li><li><a href="global.html#TYPE_REGEXP">TYPE_REGEXP</a></li><li><a href="global.html#TopologyType">TopologyType</a></li><li><a href="global.html#TxnState">TxnState</a></li><li><a href="global.html#Types">Types</a></li><li><a href="global.html#UNACKNOWLEDGED">UNACKNOWLEDGED</a></li><li><a href="global.html#View">View</a></li><li><a href="global.html#VirtualType">VirtualType</a></li><li><a href="global.html#WAITING_FOR_SUITABLE_SERVER">WAITING_FOR_SUITABLE_SERVER</a></li><li><a href="global.html#WINDOWS_CHARS">WINDOWS_CHARS</a></li><li><a href="global.html#__exportStar">__exportStar</a></li><li><a href="global.html#_advanceClusterTime">_advanceClusterTime</a></li><li><a href="global.html#_basePush">_basePush</a></li><li><a href="global.html#_checkContext">_checkContext</a></li><li><a href="global.html#_destroy">_destroy</a></li><li><a href="global.html#_filterInvalidIds">_filterInvalidIds</a></li><li><a href="global.html#_formatMatch">_formatMatch</a></li><li><a href="global.html#_getOption">_getOption</a></li><li><a href="global.html#_isValidUTF8">_isValidUTF8</a></li><li><a href="global.html#_mask">_mask</a></li><li><a href="global.html#_next">_next</a></li><li><a href="global.html#_orFailError">_orFailError</a></li><li><a href="global.html#_populate">_populate</a></li><li><a href="global.html#_toString">_toString</a></li><li><a href="global.html#_unmask">_unmask</a></li><li><a href="global.html#_update">_update</a></li><li><a href="global.html#_updateExec">_updateExec</a></li><li><a href="global.html#_updateParentPopulated">_updateParentPopulated</a></li><li><a href="global.html#abort">abort</a></li><li><a href="global.html#abortUpgrade">abortUpgrade</a></li><li><a href="global.html#acceptParams">acceptParams</a></li><li><a href="global.html#add">add</a></li><li><a href="global.html#addAzureParams">addAzureParams</a></li><li><a href="global.html#addContainerMetadata">addContainerMetadata</a></li><li><a href="global.html#addCursorFlag">addCursorFlag</a></li><li><a href="global.html#aliasFields">aliasFields</a></li><li><a href="global.html#alladdrs">alladdrs</a></li><li><a href="global.html#anymatch">anymatch</a></li><li><a href="global.html#app">app</a></li><li><a href="global.html#append">append</a></li><li><a href="global.html#application">application</a></li><li><a href="global.html#applyGetters">applyGetters</a></li><li><a href="global.html#applyHooks">applyHooks</a></li><li><a href="global.html#applyQueryMethods">applyQueryMethods</a></li><li><a href="global.html#applyRetryableWrites">applyRetryableWrites</a></li><li><a href="global.html#applySchemaTypeTransforms">applySchemaTypeTransforms</a></li><li><a href="global.html#applySession">applySession</a></li><li><a href="global.html#applyVirtuals">applyVirtuals</a></li><li><a href="global.html#applyVirtualsToChildren">applyVirtualsToChildren</a></li><li><a href="global.html#applyVirtualsToDoc">applyVirtualsToDoc</a></li><li><a href="global.html#arrayBufferToBuffer">arrayBufferToBuffer</a></li><li><a href="global.html#arrayFlatten">arrayFlatten</a></li><li><a href="global.html#arrayStrictEqual">arrayStrictEqual</a></li><li><a href="global.html#arrayToObject">arrayToObject</a></li><li><a href="global.html#ascending">ascending</a></li><li><a href="global.html#assert">assert</a></li><li><a href="global.html#assertOptions">assertOptions</a></li><li><a href="global.html#assignRawDocsToIdStructure">assignRawDocsToIdStructure</a></li><li><a href="global.html#async">async</a></li><li><a href="global.html#attach">attach</a></li><li><a href="global.html#autoConnect">autoConnect</a></li><li><a href="global.html#autoSelectSocketOptions">autoSelectSocketOptions</a></li><li><a href="global.html#base">base</a></li><li><a href="global.html#baseMinusTMin">baseMinusTMin</a></li><li><a href="global.html#basePath">basePath</a></li><li><a href="global.html#binaryToString">binaryToString</a></li><li><a href="global.html#bodyParser">bodyParser</a></li><li><a href="global.html#braces">braces</a></li><li><a href="global.html#bson_1">bson_1</a></li><li><a href="global.html#bufferToString">bufferToString</a></li><li><a href="global.html#buildDeleteManyOperation">buildDeleteManyOperation</a></li><li><a href="global.html#buildDeleteOneOperation">buildDeleteOneOperation</a></li><li><a href="global.html#buildFullPath">buildFullPath</a></li><li><a href="global.html#buildInsertOneOperation">buildInsertOneOperation</a></li><li><a href="global.html#buildOperation">buildOperation</a></li><li><a href="global.html#buildReplaceOneOperation">buildReplaceOneOperation</a></li><li><a href="global.html#buildURL">buildURL</a></li><li><a href="global.html#buildUpdateManyOperation">buildUpdateManyOperation</a></li><li><a href="global.html#buildUpdateOneOperation">buildUpdateOneOperation</a></li><li><a href="global.html#byteToHex">byteToHex</a></li><li><a href="global.html#bytes">bytes</a></li><li><a href="global.html#calculateCheckDigit">calculateCheckDigit</a></li><li><a href="global.html#calculateDurationInMs">calculateDurationInMs</a></li><li><a href="global.html#callSiteLocation">callSiteLocation</a></li><li><a href="global.html#castOps">castOps</a></li><li><a href="global.html#castUpdateVal">castUpdateVal</a></li><li><a href="global.html#charset">charset</a></li><li><a href="global.html#checkDivergentArray">checkDivergentArray</a></li><li><a href="global.html#checkParentDomainMatch">checkParentDomainMatch</a></li><li><a href="global.html">checkRequired</a></li><li><a href="global.html#checkTLSOptions">checkTLSOptions</a></li><li><a href="global.html#checkValidKey">checkValidKey</a></li><li><a href="global.html#clean">clean</a></li><li><a href="global.html#clone">clone</a></li><li><a href="global.html#close">close</a></li><li><a href="global.html#coerce">coerce</a></li><li><a href="global.html#colors">colors</a></li><li><a href="global.html#colour">colour</a></li><li><a href="global.html#combineURLs">combineURLs</a></li><li><a href="global.html#command">command</a></li><li><a href="global.html#compareObjectId">compareObjectId</a></li><li><a href="global.html#compareTopologyVersion">compareTopologyVersion</a></li><li><a href="global.html#compile">compile</a></li><li><a href="global.html#compileETag">compileETag</a></li><li><a href="global.html#compileQueryParser">compileQueryParser</a></li><li><a href="global.html#compileTrust">compileTrust</a></li><li><a href="global.html#completeOne">completeOne</a></li><li><a href="global.html#compressCommand">compressCommand</a></li><li><a href="global.html#concat">concat</a></li><li><a href="global.html#config">config</a></li><li><a href="global.html#configureExplicitResourceManagement">configureExplicitResourceManagement</a></li><li><a href="global.html#configureResourceManagement">configureResourceManagement</a></li><li><a href="global.html#constructIndexDescriptionMap">constructIndexDescriptionMap</a></li><li><a href="global.html#consumeBody">consumeBody</a></li><li><a href="global.html#containsDotFile">containsDotFile</a></li><li><a href="global.html#containsNamespace">containsNamespace</a></li><li><a href="global.html#contentDisposition">contentDisposition</a></li><li><a href="global.html#contentRange">contentRange</a></li><li><a href="global.html#contentType">contentType</a></li><li><a href="global.html#contentstream">contentstream</a></li><li><a href="global.html#convertBody">convertBody</a></li><li><a href="global.html#convertDataDescriptorToAccessor">convertDataDescriptorToAccessor</a></li><li><a href="global.html#convertNewToReturnDocument">convertNewToReturnDocument</a></li><li><a href="global.html#convertTo_id">convertTo_id</a></li><li><a href="global.html#cookieNameRegExp">cookieNameRegExp</a></li><li><a href="global.html#cookieValueRegExp">cookieValueRegExp</a></li><li><a href="global.html#create">create</a></li><li><a href="global.html#createAndConnectServer">createAndConnectServer</a></li><li><a href="global.html#createApplication">createApplication</a></li><li><a href="global.html#createArgumentsString">createArgumentsString</a></li><li><a href="global.html#createCollection">createCollection</a></li><li><a href="global.html#createCollections">createCollections</a></li><li><a href="global.html#createDebug">createDebug</a></li><li><a href="global.html#createDeleteOperation">createDeleteOperation</a></li><li><a href="global.html#createError">createError</a></li><li><a href="global.html#createFSEventsInstance">createFSEventsInstance</a></li><li><a href="global.html#createFsWatchInstance">createFsWatchInstance</a></li><li><a href="global.html#createHeadersLenient">createHeadersLenient</a></li><li><a href="global.html#createInstance">createInstance</a></li><li><a href="global.html#createModel">createModel</a></li><li><a href="global.html#createPattern">createPattern</a></li><li><a href="global.html#createStackString">createStackString</a></li><li><a href="global.html#createStdioLogger">createStdioLogger</a></li><li><a href="global.html#createUpdateOperation">createUpdateOperation</a></li><li><a href="global.html#createWebSocketStream">createWebSocketStream</a></li><li><a href="global.html#createWritableStdioStream">createWritableStdioStream</a></li><li><a href="global.html#crypto">crypto</a></li><li><a href="global.html#debug">debug</a></li><li><a href="global.html#decideModelByObject">decideModelByObject</a></li><li><a href="global.html#decode">decode</a></li><li><a href="global.html#decodeBase64Packet">decodeBase64Packet</a></li><li><a href="global.html#decodePacket">decodePacket</a></li><li><a href="global.html#decompressResponse">decompressResponse</a></li><li><a href="global.html#deconstructPacket">deconstructPacket</a></li><li><a href="global.html#decorate">decorate</a></li><li><a href="global.html#decorateDecryptionResult">decorateDecryptionResult</a></li><li><a href="global.html#decorateWithCollation">decorateWithCollation</a></li><li><a href="global.html#decorateWithExplain">decorateWithExplain</a></li><li><a href="global.html#decorateWithReadConcern">decorateWithReadConcern</a></li><li><a href="global.html#deepCopy">deepCopy</a></li><li><a href="global.html#deepEqual">deepEqual</a></li><li><a href="global.html#deepToMap">deepToMap</a></li><li><a href="global.html#defaultLogTransform">defaultLogTransform</a></li><li><a href="global.html#defaultMessage">defaultMessage</a></li><li><a href="global.html#defer">defer</a></li><li><a href="global.html#defineKey">defineKey</a></li><li><a href="global.html#depd">depd</a></li><li><a href="global.html#deprecate">deprecate</a></li><li><a href="global.html#descending">descending</a></li><li><a href="global.html#destroy">destroy</a></li><li><a href="global.html#destroyServer">destroyServer</a></li><li><a href="global.html#dir">dir</a></li><li><a href="global.html#disable">disable</a></li><li><a href="global.html#dispatchBeforeRedirect">dispatchBeforeRedirect</a></li><li><a href="global.html#dispatchRequest">dispatchRequest</a></li><li><a href="global.html#domainValueRegExp">domainValueRegExp</a></li><li><a href="global.html#drainTimerQueue">drainTimerQueue</a></li><li><a href="global.html#dropCollection">dropCollection</a></li><li><a href="global.html#dropDatabase">dropDatabase</a></li><li><a href="global.html#dump">dump</a></li><li><a href="global.html#each">each</a></li><li><a href="global.html#eachAsync">eachAsync</a></li><li><a href="global.html#emitWarning">emitWarning</a></li><li><a href="global.html#emitWarningOnce">emitWarningOnce</a></li><li><a href="global.html#emitterMethods">emitterMethods</a></li><li><a href="global.html#enable">enable</a></li><li><a href="global.html#enabled">enabled</a></li><li><a href="global.html#encloseBrace">encloseBrace</a></li><li><a href="global.html#encode">encode</a></li><li><a href="global.html#encode$1">encode$1</a></li><li><a href="global.html#encodeBase64Packet">encodeBase64Packet</a></li><li><a href="global.html#encodeBuffer">encodeBuffer</a></li><li><a href="global.html#encodePacket">encodePacket</a></li><li><a href="global.html#encodePayload">encodePayload</a></li><li><a href="global.html#encodePayloadAsBinary">encodePayloadAsBinary</a></li><li><a href="global.html#encodeUrl">encodeUrl</a></li><li><a href="global.html#endsWith">endsWith</a></li><li><a href="global.html#enumToString">enumToString</a></li><li><a href="global.html#err">err</a></li><li><a href="global.html#errorStrictEqual">errorStrictEqual</a></li><li><a href="global.html#errors">errors</a></li><li><a href="global.html#escapeHtml">escapeHtml</a></li><li><a href="global.html#escapeNode">escapeNode</a></li><li><a href="global.html#etag">etag</a></li><li><a href="global.html#exceedsLimit">exceedsLimit</a></li><li><a href="global.html#exec">exec</a></li><li><a href="global.html#execFromPackage">execFromPackage</a></li><li><a href="global.html#executeOperation">executeOperation</a></li><li><a href="global.html#expandRange">expandRange</a></li><li><a href="global.html#expires">expires</a></li><li><a href="global.html#exportNodeCompatibleHeaders">exportNodeCompatibleHeaders</a></li><li><a href="global.html#extend">extend</a></li><li><a href="global.html#extendedparser">extendedparser</a></li><li><a href="global.html#extension">extension</a></li><li><a href="global.html#extractCommand">extractCommand</a></li><li><a href="global.html#extractContentType">extractContentType</a></li><li><a href="global.html#family">family</a></li><li><a href="global.html#familySync">familySync</a></li><li><a href="global.html#fd">fd</a></li><li><a href="global.html#fetch">fetch</a></li><li><a href="global.html#fetchAzureKMSToken">fetchAzureKMSToken</a></li><li><a href="global.html#filterOptions">filterOptions</a></li><li><a href="global.html#finalhandler">finalhandler</a></li><li><a href="global.html#find">find</a></li><li><a href="global.html#finishCommandDocument">finishCommandDocument</a></li><li><a href="global.html#finisher">finisher</a></li><li><a href="global.html#first">first</a></li><li><a href="global.html#flatten">flatten</a></li><li><a href="global.html#flattenForever">flattenForever</a></li><li><a href="global.html#flattenWithDepth">flattenWithDepth</a></li><li><a href="global.html#fmtLong">fmtLong</a></li><li><a href="global.html#fmtShort">fmtShort</a></li><li><a href="global.html#forEach">forEach</a></li><li><a href="global.html#forEachEntry">forEachEntry</a></li><li><a href="global.html#formDataToJSON">formDataToJSON</a></li><li><a href="global.html#format">format</a></li><li><a href="global.html#formatArgs">formatArgs</a></li><li><a href="global.html#formatColor">formatColor</a></li><li><a href="global.html#formatLocation">formatLocation</a></li><li><a href="global.html#formatMessage">formatMessage</a></li><li><a href="global.html#formatPlain">formatPlain</a></li><li><a href="global.html#formatSort">formatSort</a></li><li><a href="global.html#formatters">formatters</a></li><li><a href="global.html#forwarded">forwarded</a></li><li><a href="global.html#freezeMethods">freezeMethods</a></li><li><a href="global.html#fresh">fresh</a></li><li><a href="global.html#fsWatchBroadcast">fsWatchBroadcast</a></li><li><a href="global.html#get">get</a></li><li><a href="global.html#getAzureTokenData">getAzureTokenData</a></li><li><a href="global.html#getCharset">getCharset</a></li><li><a href="global.html#getContainerMetadata">getContainerMetadata</a></li><li><a href="global.html#getCredentials">getCredentials</a></li><li><a href="global.html#getFAASEnv">getFAASEnv</a></li><li><a href="global.html#getGcpTokenData">getGcpTokenData</a></li><li><a href="global.html#getIndexes">getIndexes</a></li><li><a href="global.html#getMongoDBClientEncryption">getMongoDBClientEncryption</a></li><li><a href="global.html#getNodeRequestOptions">getNodeRequestOptions</a></li><li><a href="global.html#getOutputLength">getOutputLength</a></li><li><a href="global.html#getPositionWeightThroughLengthAndIndex">getPositionWeightThroughLengthAndIndex</a></li><li><a href="global.html#getPositionalPathType">getPositionalPathType</a></li><li><a href="global.html#getProxyForUrl">getProxyForUrl</a></li><li><a href="global.html#getRawBody">getRawBody</a></li><li><a href="global.html#getRuntimeInfo">getRuntimeInfo</a></li><li><a href="global.html#getStack">getStack</a></li><li><a href="global.html#getTasks">getTasks</a></li><li><a href="global.html#getTimestampsOpt">getTimestampsOpt</a></li><li><a href="global.html#getTopology">getTopology</a></li><li><a href="global.html#getTotalBytes">getTotalBytes</a></li><li><a href="global.html#getValue">getValue</a></li><li><a href="global.html#getcontenttype">getcontenttype</a></li><li><a href="global.html#handle$in">handle$in</a></li><li><a href="global.html#handleAtomics">handleAtomics</a></li><li><a href="global.html#handleSingle">handleSingle</a></li><li><a href="global.html#has">has</a></li><li><a href="global.html#hasAtomicOperators">hasAtomicOperators</a></li><li><a href="global.html#hasKey">hasKey</a></li><li><a href="global.html#hasOnlyValidCountryCodes">hasOnlyValidCountryCodes</a></li><li><a href="global.html#hasSessionSupport">hasSessionSupport</a></li><li><a href="global.html#hasStandardBrowserEnv">hasStandardBrowserEnv</a></li><li><a href="global.html#hasStandardBrowserWebWorkerEnv">hasStandardBrowserWebWorkerEnv</a></li><li><a href="global.html#hasValidIbanChecksum">hasValidIbanChecksum</a></li><li><a href="global.html#hasValidIbanFormat">hasValidIbanFormat</a></li><li><a href="global.html#hasbody">hasbody</a></li><li><a href="global.html#hex2buffer">hex2buffer</a></li><li><a href="global.html#hostMatchesWildcards">hostMatchesWildcards</a></li><li><a href="global.html#ibanRegexThroughCountryCode">ibanRegexThroughCountryCode</a></li><li><a href="global.html#idGetter">idGetter</a></li><li><a href="global.html#inherits">inherits</a></li><li><a href="global.html#init">init</a></li><li><a href="global.html#inspectOpts">inspectOpts</a></li><li><a href="global.html#inspectable">inspectable</a></li><li><a href="global.html#inspectorLog">inspectorLog</a></li><li><a href="global.html#invalidTokenRegex">invalidTokenRegex</a></li><li><a href="global.html#isAbsolute">isAbsolute</a></li><li><a href="global.html#isAbsoluteURL">isAbsoluteURL</a></li><li><a href="global.html#isArgumentsObject">isArgumentsObject</a></li><li><a href="global.html#isArrayBuffer">isArrayBuffer</a></li><li><a href="global.html#isArrayBufferView">isArrayBufferView</a></li><li><a href="global.html#isAxiosError$1">isAxiosError$1</a></li><li><a href="global.html#isBlob">isBlob</a></li><li><a href="global.html#isBoolean">isBoolean</a></li><li><a href="global.html#isBsonType">isBsonType</a></li><li><a href="global.html#isBuffer">isBuffer</a></li><li><a href="global.html#isCallbackResultInvalid">isCallbackResultInvalid</a></li><li><a href="global.html#isCanadianSIN">isCanadianSIN</a></li><li><a href="global.html#isDate">isDate</a></li><li><a href="global.html#isEAN">isEAN</a></li><li><a href="global.html#isEmptyCredentials">isEmptyCredentials</a></li><li><a href="global.html#isEmptyObject">isEmptyObject</a></li><li><a href="global.html#isEndpointResultValid">isEndpointResultValid</a></li><li><a href="global.html#isErrorResponse">isErrorResponse</a></li><li><a href="global.html#isFile">isFile</a></li><li><a href="global.html#isFileList">isFileList</a></li><li><a href="global.html#isFinished">isFinished</a></li><li><a href="global.html#isFlatArray">isFlatArray</a></li><li><a href="global.html#isFormData">isFormData</a></li><li><a href="global.html#isFunction">isFunction</a></li><li><a href="global.html#isHello">isHello</a></li><li><a href="global.html#isHostMatch">isHostMatch</a></li><li><a href="global.html#isInvalidBrace">isInvalidBrace</a></li><li><a href="global.html#isInvalidDayOfMonth">isInvalidDayOfMonth</a></li><li><a href="global.html#isInvalidHour">isInvalidHour</a></li><li><a href="global.html#isInvalidMinute">isInvalidMinute</a></li><li><a href="global.html#isInvalidMonth">isInvalidMonth</a></li><li><a href="global.html#isInvalidSecond">isInvalidSecond</a></li><li><a href="global.html#isInvalidWeekDay">isInvalidWeekDay</a></li><li><a href="global.html#isMeta">isMeta</a></li><li><a href="global.html#isMongooseType">isMongooseType</a></li><li><a href="global.html#isNativeObject">isNativeObject</a></li><li><a href="global.html#isNonBuiltinObject">isNonBuiltinObject</a></li><li><a href="global.html#isNonGlibcLinux">isNonGlibcLinux</a></li><li><a href="global.html#isNonGlibcLinuxSync">isNonGlibcLinuxSync</a></li><li><a href="global.html#isNullOrUndefined">isNullOrUndefined</a></li><li><a href="global.html#isNumber">isNumber</a></li><li><a href="global.html#isObject">isObject</a></li><li><a href="global.html#isObjectIdOrHexString">isObjectIdOrHexString</a></li><li><a href="global.html#isOpenOrClose">isOpenOrClose</a></li><li><a href="global.html#isOperator">isOperator</a></li><li><a href="global.html#isPOJO">isPOJO</a></li><li><a href="global.html#isPair">isPair</a></li><li><a href="global.html#isPassportNumber">isPassportNumber</a></li><li><a href="global.html#isPlainObject">isPlainObject</a></li><li><a href="global.html#isPopulatedObject">isPopulatedObject</a></li><li><a href="global.html#isPromiseLike">isPromiseLike</a></li><li><a href="global.html#isRegExp">isRegExp</a></li><li><a href="global.html#isRequest">isRequest</a></li><li><a href="global.html#isRetryableReadError">isRetryableReadError</a></li><li><a href="global.html#isRetryableWritesEnabled">isRetryableWritesEnabled</a></li><li><a href="global.html#isSDAMUnrecoverableError">isSDAMUnrecoverableError</a></li><li><a href="global.html#isSameProtocol">isSameProtocol</a></li><li><a href="global.html#isSpecCompliantForm">isSpecCompliantForm</a></li><li><a href="global.html#isStream">isStream</a></li><li><a href="global.html#isString">isString</a></li><li><a href="global.html#isTypedArray">isTypedArray</a></li><li><a href="global.html#isURLSearchParams">isURLSearchParams</a></li><li><a href="global.html#isUint8Array">isUint8Array</a></li><li><a href="global.html#isUndefined">isUndefined</a></li><li><a href="global.html#isValidExpression">isValidExpression</a></li><li><a href="global.html#isValidObjectId">isValidObjectId</a></li><li><a href="global.html#isValidStatusCode">isValidStatusCode</a></li><li><a href="global.html#isVisitable">isVisitable</a></li><li><a href="global.html#isignored">isignored</a></li><li><a href="global.html#isstats">isstats</a></li><li><a href="global.html#istraced">istraced</a></li><li><a href="global.html#iter">iter</a></li><li><a href="global.html#iterate">iterate</a></li><li><a href="global.html#json">json</a></li><li><a href="global.html#kBeforeHandshake">kBeforeHandshake</a></li><li><a href="global.html#kCancellationToken">kCancellationToken</a></li><li><a href="global.html#kCancelled">kCancelled</a></li><li><a href="global.html#kCheckedOut">kCheckedOut</a></li><li><a href="global.html#kClosed">kClosed</a></li><li><a href="global.html#kConnectionCounter">kConnectionCounter</a></li><li><a href="global.html#kConnections">kConnections</a></li><li><a href="global.html#kCursorStream">kCursorStream</a></li><li><a href="global.html#kDecorateResult">kDecorateResult</a></li><li><a href="global.html#kDecoratedKeys">kDecoratedKeys</a></li><li><a href="global.html#kErrorLabels">kErrorLabels</a></li><li><a href="global.html#kGeneration">kGeneration</a></li><li><a href="global.html#kInternalClient">kInternalClient</a></li><li><a href="global.html#kMetrics">kMetrics</a></li><li><a href="global.html#kMinPoolSizeTimer">kMinPoolSizeTimer</a></li><li><a href="global.html#kMode">kMode</a></li><li><a href="global.html#kMonitorId">kMonitorId</a></li><li><a href="global.html#kOptions">kOptions</a></li><li><a href="global.html#kPending">kPending</a></li><li><a href="global.html#kPinnedConnection">kPinnedConnection</a></li><li><a href="global.html#kPoolState">kPoolState</a></li><li><a href="global.html#kProcessingWaitQueue">kProcessingWaitQueue</a></li><li><a href="global.html#kServer">kServer</a></li><li><a href="global.html#kServerError">kServerError</a></li><li><a href="global.html#kServerSession">kServerSession</a></li><li><a href="global.html#kServiceGenerations">kServiceGenerations</a></li><li><a href="global.html#kSession">kSession</a></li><li><a href="global.html#kSnapshotEnabled">kSnapshotEnabled</a></li><li><a href="global.html#kSnapshotTime">kSnapshotTime</a></li><li><a href="global.html#kTxnNumberIncrement">kTxnNumberIncrement</a></li><li><a href="global.html#kWaitQueue">kWaitQueue</a></li><li><a href="global.html#keys">keys</a></li><li><a href="global.html#last">last</a></li><li><a href="global.html#latencyWindowReducer">latencyWindowReducer</a></li><li><a href="global.html#listCollections">listCollections</a></li><li><a href="global.html#listGet">listGet</a></li><li><a href="global.html#listGetNode">listGetNode</a></li><li><a href="global.html#listHas">listHas</a></li><li><a href="global.html#listSet">listSet</a></li><li><a href="global.html#listen">listen</a></li><li><a href="global.html#load">load</a></li><li><a href="global.html#loadAWSCredentials">loadAWSCredentials</a></li><li><a href="global.html#loadAzureCredentials">loadAzureCredentials</a></li><li><a href="global.html#loadFile">loadFile</a></li><li><a href="global.html#loadGCPCredentials">loadGCPCredentials</a></li><li><a href="global.html#loadKrb">loadKrb</a></li><li><a href="global.html#loadZstd">loadZstd</a></li><li><a href="global.html#localstorage">localstorage</a></li><li><a href="global.html#log">log</a></li><li><a href="global.html#lookup">lookup</a></li><li><a href="global.html#makeClientMetadata">makeClientMetadata</a></li><li><a href="global.html#makeCounter">makeCounter</a></li><li><a href="global.html#makeLean">makeLean</a></li><li><a href="global.html#makeStateMachine">makeStateMachine</a></li><li><a href="global.html#map">map</a></li><li><a href="global.html#mapToMap">mapToMap</a></li><li><a href="global.html#matchAll">matchAll</a></li><li><a href="global.html#matchPatterns">matchPatterns</a></li><li><a href="global.html#matchesParentDomain">matchesParentDomain</a></li><li><a href="global.html#maxInt">maxInt</a></li><li><a href="global.html#maxStalenessReducer">maxStalenessReducer</a></li><li><a href="global.html#maxWireVersion">maxWireVersion</a></li><li><a href="global.html#maybeRemoveId">maybeRemoveId</a></li><li><a href="global.html#merge">merge</a></li><li><a href="global.html#mergeBatchResults">mergeBatchResults</a></li><li><a href="global.html#mergeClone">mergeClone</a></li><li><a href="global.html#mergeConfig$1">mergeConfig$1</a></li><li><a href="global.html#mergeOptions">mergeOptions</a></li><li><a href="global.html#methods">methods</a></li><li><a href="global.html#mime">mime</a></li><li><a href="global.html#minimize">minimize</a></li><li><a href="global.html#mixin">mixin</a></li><li><a href="global.html#mockS3Http">mockS3Http</a></li><li><a href="global.html#model">model</a></li><li><a href="global.html#mongoose">mongoose</a></li><li><a href="global.html#mpath">mpath</a></li><li><a href="global.html#multilineRegexp">multilineRegexp</a></li><li><a href="global.html#names">names</a></li><li><a href="global.html#newObject">newObject</a></li><li><a href="global.html#next">next</a></li><li><a href="global.html#noCastOps">noCastOps</a></li><li><a href="global.html#noPasswordAuthMechanisms">noPasswordAuthMechanisms</a></li><li><a href="global.html#nodemon">nodemon</a></li><li><a href="global.html#nodemonOption">nodemonOption</a></li><li><a href="global.html#normalizeHintField">normalizeHintField</a></li><li><a href="global.html#normalizeJsonSyntaxError">normalizeJsonSyntaxError</a></li><li><a href="global.html#normalizeType">normalizeType</a></li><li><a href="global.html#normalizeTypes">normalizeTypes</a></li><li><a href="global.html#notImplemented">notImplemented</a></li><li><a href="global.html#now">now</a></li><li><a href="global.html#ns">ns</a></li><li><a href="global.html#numberOps">numberOps</a></li><li><a href="global.html#object">object</a></li><li><a href="global.html#objectToMap">objectToMap</a></li><li><a href="global.html#omitUndefined">omitUndefined</a></li><li><a href="global.html#onData">onData</a></li><li><a href="global.html#onFinished">onFinished</a></li><li><a href="global.html#once">once</a></li><li><a href="global.html#operand">operand</a></li><li><a href="global.html#originalurl">originalurl</a></li><li><a href="global.html#overwriteMiddlewareResult">overwriteMiddlewareResult</a></li><li><a href="global.html#packets">packets</a></li><li><a href="global.html#pairToMap">pairToMap</a></li><li><a href="global.html#parallel">parallel</a></li><li><a href="global.html#paramRegExp">paramRegExp</a></li><li><a href="global.html#parameterCount">parameterCount</a></li><li><a href="global.html#parentArray">parentArray</a></li><li><a href="global.html#parse">parse</a></li><li><a href="global.html#parseDelay">parseDelay</a></li><li><a href="global.html#parseHeaders">parseHeaders</a></li><li><a href="global.html#parsePropPath">parsePropPath</a></li><li><a href="global.html#parseResponse">parseResponse</a></li><li><a href="global.html#parseSeverityFromString">parseSeverityFromString</a></li><li><a href="global.html#parseURL">parseURL</a></li><li><a href="global.html#parseUtf8ValidationOption">parseUtf8ValidationOption</a></li><li><a href="global.html#parser">parser</a></li><li><a href="global.html#parsers">parsers</a></li><li><a href="global.html#parseurl">parseurl</a></li><li><a href="global.html#passportRegexByCountryCode">passportRegexByCountryCode</a></li><li><a href="global.html#pathToRegexp">pathToRegexp</a></li><li><a href="global.html#pathValueRegExp">pathValueRegExp</a></li><li><a href="global.html#picomatch">picomatch</a></li><li><a href="global.html#plural">plural</a></li><li><a href="global.html#pluralization">pluralization</a></li><li><a href="global.html#pluralize">pluralize</a></li><li><a href="global.html#polling">polling</a></li><li><a href="global.html#populate">populate</a></li><li><a href="global.html#preferredCharsets">preferredCharsets</a></li><li><a href="global.html#preferredEncodings">preferredEncodings</a></li><li><a href="global.html#preferredLanguages">preferredLanguages</a></li><li><a href="global.html#preferredMediaTypes">preferredMediaTypes</a></li><li><a href="global.html#prepareDirection">prepareDirection</a></li><li><a href="global.html#prepareDiscriminatorCriteria">prepareDiscriminatorCriteria</a></li><li><a href="global.html#prepareHandshakeDocument">prepareHandshakeDocument</a></li><li><a href="global.html#prepareObjectStackTrace">prepareObjectStackTrace</a></li><li><a href="global.html#preparePopulationOptions">preparePopulationOptions</a></li><li><a href="global.html#preparePopulationOptionsMQ">preparePopulationOptionsMQ</a></li><li><a href="global.html#prepareRequest">prepareRequest</a></li><li><a href="global.html#prevTime">prevTime</a></li><li><a href="global.html#prog">prog</a></li><li><a href="global.html#proto">proto</a></li><li><a href="global.html#protocol">protocol</a></li><li><a href="global.html#proxyaddr">proxyaddr</a></li><li><a href="global.html#punycode">punycode</a></li><li><a href="global.html#qescRegExp">qescRegExp</a></li><li><a href="global.html#qstring">qstring</a></li><li><a href="global.html#quoteRegExp">quoteRegExp</a></li><li><a href="global.html#rangeParser">rangeParser</a></li><li><a href="global.html#rangeToPattern">rangeToPattern</a></li><li><a href="global.html#raw">raw</a></li><li><a href="global.html#readConcern">readConcern</a></li><li><a href="global.html#readFile">readFile</a></li><li><a href="global.html#readFileSync">readFileSync</a></li><li><a href="global.html#readPref">readPref</a></li><li><a href="global.html#readPreferenceServerSelector">readPreferenceServerSelector</a></li><li><a href="global.html#readStream">readStream</a></li><li><a href="global.html#readdirp">readdirp</a></li><li><a href="global.html#reconstructPacket">reconstructPacket</a></li><li><a href="global.html#reduce">reduce</a></li><li><a href="global.html#refreshKMSCredentials">refreshKMSCredentials</a></li><li><a href="global.html#regexPunycode">regexPunycode</a></li><li><a href="global.html#registerRemoveListener">registerRemoveListener</a></li><li><a href="global.html#relative">relative</a></li><li><a href="global.html#removeBrackets">removeBrackets</a></li><li><a href="global.html#removedMiddlewares">removedMiddlewares</a></li><li><a href="global.html#renameObjKey">renameObjKey</a></li><li><a href="global.html#renderKey">renderKey</a></li><li><a href="global.html#req">req</a></li><li><a href="global.html#res">res</a></li><li><a href="global.html#resolveBSONOptions">resolveBSONOptions</a></li><li><a href="global.html#resolveIndexDescription">resolveIndexDescription</a></li><li><a href="global.html#resolveLogPath">resolveLogPath</a></li><li><a href="global.html#resolveOptions">resolveOptions</a></li><li><a href="global.html#resolveSRVRecord">resolveSRVRecord</a></li><li><a href="global.html#rewind">rewind</a></li><li><a href="global.html#runJob">runJob</a></li><li><a href="global.html#runValidatorsOnUpdate">runValidatorsOnUpdate</a></li><li><a href="global.html#s">s</a></li><li><a href="global.html#sameServerSelector">sameServerSelector</a></li><li><a href="global.html#sanitizeFilter">sanitizeFilter</a></li><li><a href="global.html#save">save</a></li><li><a href="global.html#scan">scan</a></li><li><a href="global.html#schedule">schedule</a></li><li><a href="global.html#scopePaths">scopePaths</a></li><li><a href="global.html#secondaryWritableServerSelector">secondaryWritableServerSelector</a></li><li><a href="global.html#selectColor">selectColor</a></li><li><a href="global.html#semanticVersioningRegex">semanticVersioningRegex</a></li><li><a href="global.html#send">send</a></li><li><a href="global.html#serial">serial</a></li><li><a href="global.html#serialOrdered">serialOrdered</a></li><li><a href="global.html#serialize">serialize</a></li><li><a href="global.html#serveStatic">serveStatic</a></li><li><a href="global.html#set">set</a></li><li><a href="global.html#setCharset">setCharset</a></li><li><a href="global.html#setDefaultsOnInsert">setDefaultsOnInsert</a></li><li><a href="global.html#setDifference">setDifference</a></li><li><a href="global.html#setFSEventsListener">setFSEventsListener</a></li><li><a href="global.html#setFsWatchFileListener">setFsWatchFileListener</a></li><li><a href="global.html#setFsWatchListener">setFsWatchListener</a></li><li><a href="global.html#setProxy">setProxy</a></li><li><a href="global.html#setValue">setValue</a></li><li><a href="global.html#settle">settle</a></li><li><a href="global.html#setup">setup</a></li><li><a href="global.html#sha1">sha1</a></li><li><a href="global.html#shouldSkipVersioning">shouldSkipVersioning</a></li><li><a href="global.html#shuffle">shuffle</a></li><li><a href="global.html#sign">sign</a></li><li><a href="global.html#simpleparser">simpleparser</a></li><li><a href="global.html#skipMiddlewareFunction">skipMiddlewareFunction</a></li><li><a href="global.html#special">special</a></li><li><a href="global.html#speedometer">speedometer</a></li><li><a href="global.html#splitType">splitType</a></li><li><a href="global.html#spread$1">spread$1</a></li><li><a href="global.html#squashError">squashError</a></li><li><a href="global.html#startCommandDocument">startCommandDocument</a></li><li><a href="global.html#startSession">startSession</a></li><li><a href="global.html#state">state</a></li><li><a href="global.html#status">status</a></li><li><a href="global.html#streamer">streamer</a></li><li><a href="global.html#stringToArgs">stringToArgs</a></li><li><a href="global.html#stringToBinary">stringToBinary</a></li><li><a href="global.html#stringToBuffer">stringToBuffer</a></li><li><a href="global.html#stringToPath">stringToPath</a></li><li><a href="global.html#stringifySafely">stringifySafely</a></li><li><a href="global.html#stringifyWithMaxLen">stringifyWithMaxLen</a></li><li><a href="global.html#stringsToMap">stringsToMap</a></li><li><a href="global.html#stripBOM">stripBOM</a></li><li><a href="global.html#subtypeNameRegExp">subtypeNameRegExp</a></li><li><a href="global.html#supportsRetryableWrites">supportsRetryableWrites</a></li><li><a href="global.html#syntaxError">syntaxError</a></li><li><a href="global.html#tagSetMatch">tagSetMatch</a></li><li><a href="global.html#tagSetReducer">tagSetReducer</a></li><li><a href="global.html#terminator">terminator</a></li><li><a href="global.html#text">text</a></li><li><a href="global.html#throttle">throttle</a></li><li><a href="global.html#throwIfCancellationRequested">throwIfCancellationRequested</a></li><li><a href="global.html#throwIfWriteConcernError">throwIfWriteConcernError</a></li><li><a href="global.html#tick">tick</a></li><li><a href="global.html#toArray">toArray</a></li><li><a href="global.html#toArrayBuffer">toArrayBuffer</a></li><li><a href="global.html#toBuffer">toBuffer</a></li><li><a href="global.html#toCollectionName">toCollectionName</a></li><li><a href="global.html#toFlatObject">toFlatObject</a></li><li><a href="global.html#toFormData">toFormData</a></li><li><a href="global.html#toFormData$1">toFormData$1</a></li><li><a href="global.html#toIdentifier">toIdentifier</a></li><li><a href="global.html#toObject">toObject</a></li><li><a href="global.html#tokenCache">tokenCache</a></li><li><a href="global.html#topologyTypeFromOptions">topologyTypeFromOptions</a></li><li><a href="global.html#transaction">transaction</a></li><li><a href="global.html#transformData">transformData</a></li><li><a href="global.html#trim">trim</a></li><li><a href="global.html#trusted">trusted</a></li><li><a href="global.html#tryOperation">tryOperation</a></li><li><a href="global.html#tty">tty</a></li><li><a href="global.html#typeChecker">typeChecker</a></li><li><a href="global.html#typeOf">typeOf</a></li><li><a href="global.html#typeis">typeis</a></li><li><a href="global.html#typeofrequest">typeofrequest</a></li><li><a href="global.html#ukUaCheck">ukUaCheck</a></li><li><a href="global.html#uncountables">uncountables</a></li><li><a href="global.html#unpipe">unpipe</a></li><li><a href="global.html#unset">unset</a></li><li><a href="global.html#unsign">unsign</a></li><li><a href="global.html#updateServers">updateServers</a></li><li><a href="global.html#urlencoded">urlencoded</a></li><li><a href="global.html#useColors">useColors</a></li><li><a href="global.html#utf8">utf8</a></li><li><a href="global.html#utils">utils</a></li><li><a href="global.html#uuidV4">uuidV4</a></li><li><a href="global.html#validHdrChars">validHdrChars</a></li><li><a href="global.html#validate">validate</a></li><li><a href="global.html#validateDisplayName">validateDisplayName</a></li><li><a href="global.html#validateFields">validateFields</a></li><li><a href="global.html#validateLoadBalancedOptions">validateLoadBalancedOptions</a></li><li><a href="global.html#validateUpdate">validateUpdate</a></li><li><a href="global.html#valueFilter">valueFilter</a></li><li><a href="global.html#vary">vary</a></li><li><a href="global.html#version">version</a></li><li><a href="global.html#versionSync">versionSync</a></li><li><a href="global.html#walkKeyPathValues">walkKeyPathValues</a></li><li><a href="global.html#walkUpdatePath">walkUpdatePath</a></li><li><a href="global.html#watch">watch</a></li><li><a href="global.html#wetag">wetag</a></li><li><a href="global.html#withSession">withSession</a></li><li><a href="global.html#wrapCallback">wrapCallback</a></li><li><a href="global.html#wrapIterator">wrapIterator</a></li><li><a href="global.html#wrapIteratorCallback">wrapIteratorCallback</a></li><li><a href="global.html#wrapfunction">wrapfunction</a></li><li><a href="global.html#wrapproperty">wrapproperty</a></li><li><a href="global.html#writableServerSelector">writableServerSelector</a></li><li><a href="global.html#writeToStream">writeToStream</a></li><li><a href="global.html#yeast">yeast</a></li><li><a href="global.html#zip">zip</a></li></ul>
+</nav>
+
+<br class="clear">
+
+<footer>
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 4.0.4</a> on Fri Dec 06 2024 14:28:51 GMT-0800 (Pacific Standard Time)
+</footer>
+
+<script> prettyPrint(); </script>
+<script src="scripts/linenumber.js"> </script>
+</body>
+</html>
