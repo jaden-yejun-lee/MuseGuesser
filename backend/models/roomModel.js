@@ -1,6 +1,8 @@
 const mongoose = require("mongoose");
 
+// Room class has an array for the players
 const roomSchema = new mongoose.Schema({
+    // array for players
     players: {
         type: Array,
         default: []     // { userId, score }
