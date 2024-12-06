@@ -9,12 +9,14 @@ const { Room } = require("../utility/room");
 const { Player } = require("../utility/player");
 const { generateQuestionSets } = require("../utility/gameManager");
 
+// Normalizes date to UTC
 function normalizeDate(date) {
     const normalized = new Date(date);
     normalized.setUTCHours(0, 0, 0, 0);
     return normalized;
 }
 
+// Route to join a specific room code
 router.post("/joinRoom", async (req, res) => {
     try {
         const { code, userId } = req.body   // Get room code & player infos
@@ -64,6 +66,7 @@ router.post("/joinRoom", async (req, res) => {
     }
 })
 
+// Route to create a new room
 router.post("/createRoom", async (req, res) => {
     try {
         const { userId } = req.body   // Get room code & player infos
@@ -94,6 +97,7 @@ router.post("/createRoom", async (req, res) => {
     }
 })
 
+// Route to submit an answer for that specific question
 router.post("/submitAnswer", async (req, res) => {
     try {
         const { code, userId, idx, choice, score } = req.body // Room code | userId | questionSet index | choice index
@@ -134,6 +138,7 @@ router.post("/submitAnswer", async (req, res) => {
     }
 })
 
+// Route to save and exit the room
 router.post("/saveExit", async (req, res) => {
     try {
         console.log("Receives on exit save request.")
@@ -150,6 +155,7 @@ router.post("/saveExit", async (req, res) => {
     }
 })
 
+// Route to get the daily challenge
 router.get("/dailyChallenge", async (req, res) => {
     try {
 
@@ -168,6 +174,7 @@ router.get("/dailyChallenge", async (req, res) => {
     }
 });
 
+// Route to update a user's daily score after completing the daily challenge
 router.post("/updateDailyScore", async(req, res) => {
     const {userId, score} = req.body;
 
@@ -193,6 +200,7 @@ router.post("/updateDailyScore", async(req, res) => {
     }
 })
 
+// Route to get all users' scores for the daily challenge
 router.get("/dailyChallengeScores", async (req, res) => {
     try {
 
