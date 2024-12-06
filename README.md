@@ -1,6 +1,20 @@
-# Project Setup Guide
+# MuseGuesser
 
-This project consists of a frontend and backend application. Follow these instructions to set up and run the project locally.
+MuseGuesser is an interactive multiplayer trivia game that challenges players' music knowledge through an engaging, competitive format. Players compete in real-time to answer questions about songs played through Spotify, testing both their music expertise and quick-thinking abilities.
+
+## Features
+
+- **Multiplayer Music Trivia**: Compete with friends in real-time to identify and answer questions about songs
+- **Spotify Integration**: Seamless integration with Spotify's vast music library to source songs and audio
+- **Dynamic Scoring System**: Points awarded based on:
+  - Speed of response
+  - Answer accuracy
+  - Consistent performance
+- **User Accounts**: Create personal profiles to:
+  - Track game history
+  - Create custom game sessions
+  - Share games with friends
+- **Daily Challenges**: Special daily competitions with ranked leaderboards for music enthusiasts
 
 ## Prerequisites
 
