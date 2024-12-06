@@ -5,8 +5,7 @@ const router = express.Router();
 const matchModel = require("../models/matchModel.js");
 const userModel = require("../models/userModel.js");
 
-// routes: upload match, get match history
-
+// Route to upload a new match
 router.post("/uploadMatch", (req, res) => {
     // get match data from req
     const gameType = req.body.gameType;
@@ -25,6 +24,7 @@ router.post("/uploadMatch", (req, res) => {
     });
 });
 
+// Route to upload an user's match history
 router.post("/matchHistory", (req, res) => {
     // get all matches with req userid
     const userid = req.body.userId;

@@ -6,10 +6,7 @@ const bcrypt = require("bcrypt");
 // import user model
 const userModel = require("../models/userModel.js");
 
-// routes to handle:
-// sign up
-// sign in
-
+// Route to allows user to login and saves credentials to db
 router.post("/login", (req, res) => {
     // check if user exists
     // use User model findOne to get account
@@ -43,6 +40,7 @@ router.post("/login", (req, res) => {
     });    
 });
 
+// Route to logout of application
 router.post("/logout", (req, res) => {
     try {
         res.status(200).json({ message: "Logout successful" });
@@ -51,6 +49,7 @@ router.post("/logout", (req, res) => {
     }
 });
 
+// Route to signup 
 router.post("/signup", (req, res) => {
     // check if username or email is taken
     userModel.findOne({
@@ -86,6 +85,7 @@ router.post("/signup", (req, res) => {
     });
 });
 
+// Route to get username of a specific userId
 router.post("/getUsername", (req, res) => {
     userModel.findById(req.body.userId).then(user => {
         if(user){

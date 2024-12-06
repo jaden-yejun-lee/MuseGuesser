@@ -6,6 +6,8 @@ const { SpotifyProxy } = require('../controller/spotifyProxy')
 
 // Get spotify access token with client credentials flow
 //  see https://developer.spotify.com/documentation/web-api/tutorials/client-credentials-flow
+
+// Route to get spotify token
 router.get('/token', async (req, res) => {
   try {
       const accessToken = await getAccessToken()
@@ -22,7 +24,7 @@ router.get('/token', async (req, res) => {
   }
 })
 
-// Get track from track ID
+// Route to get track from track ID
 router.get("/track/:id", async (req, res) => {
   const trackId = req.params.id;
   const spotify = SpotifyProxy.getInstance();
@@ -34,7 +36,7 @@ router.get("/track/:id", async (req, res) => {
   }
 });
 
-// Get recommendation from genre
+// Route to get recommendation from genre
 router.get("/recommendations", async (req, res) => {
   const { genres, limit } = req.query;
   const accessToken = await getAccessToken();
